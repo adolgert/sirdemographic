@@ -25,11 +25,11 @@ LIBS=-L$(BOOST)/lib -lboost_unit_test_framework$(BOOSTVARIANT) \
 sirexp: sir_exp.o main.o seasonal.o
 	g++ -g -O2 -fPIC -o sirexp sir_exp.o main.o seasonal.o $(LIBS)
 
-sir_exp.o: sir_exp.cpp
+sir_exp.o: sir_exp.cpp sir_exp.hpp
 	g++ sir_exp.cpp -DHAVE_CONFIG_H -std=c++11 -fPIC $(INCLUDES) $(OPT) \
 	-c -o sir_exp.o
 
-seasonal.o: seasonal.cpp
+seasonal.o: seasonal.cpp seasonal.hpp
 	g++ seasonal.cpp -DHAVE_CONFIG_H -std=c++11 -fPIC $(INCLUDES) $(OPT) \
 	-c -o seasonal.o
 
@@ -38,4 +38,4 @@ main.o: main.cpp
 	-c -o main.o
 
 clean:
-	rm sir_exp.o sirexp
+	rm -f *.o sirexp

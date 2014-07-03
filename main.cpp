@@ -83,7 +83,6 @@ int main(int argc, char *argv[])
   afidd::LogInit(log_level);
   RandGen rng(rand_seed);
 
-  double t=SeasonalInterval(0, 0, 400, 0.6, 1);
   double tolerance=TestSeasonal(0.6);
   std::cout << "Seasonal tolerance " << tolerance << std::endl;
 
