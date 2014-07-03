@@ -2,6 +2,7 @@
 #include "boost/program_options.hpp"
 #include "smv.hpp"
 #include "sir_exp.hpp"
+#include "hdf_file.hpp"
 #include "seasonal.hpp"
 
 
@@ -11,11 +12,11 @@
 class TrajectorySave : public TrajectoryObserver
 {
   using StateArray=std::array<int64_t,3>;
-  std::vector<std::tuple<StateArray,double>> trajectory_;
+ public:
+  std::vector<TrajectoryEntry> trajectory_;
 
-public:
-  virtual void Step(std::array<int64_t,3> sir, double when) override {
-    trajectory_.emplace_back(std::make_tuple(sir, when));
+  virtual void Step(TrajectoryEntry sirt) override {
+    trajectory_.emplace_back(sirt);
   }
 };
 
@@ -25,7 +26,7 @@ int main(int argc, char *argv[])
 {
   namespace po=boost::program_options;
   po::options_description desc("Well-mixed SIR");
-  int64_t individual_cnt=100000;
+  int64_t individual_cnt=10000;
   int64_t infected_start=std::floor(individual_cnt*0.001);
   int64_t recovered_start=std::floor(individual_cnt*0.9);
   size_t rand_seed=1;
@@ -38,6 +39,7 @@ int main(int argc, char *argv[])
   double end_time=30.0;
   std::string log_level;
   std::string translation_file;
+  bool test=false;
 
   desc.add_options()
     ("help", "show help message")
@@ -83,8 +85,17 @@ int main(int argc, char *argv[])
   afidd::LogInit(log_level);
   RandGen rng(rand_seed);
 
-  double tolerance=TestSeasonal(0.6);
-  std::cout << "Seasonal tolerance " << tolerance << std::endl;
+  if (test) {
+    double tolerance=TestSeasonal(0.6);
+    std::cout << "Seasonal tolerance " << tolerance << std::endl;
+  }
+  {
+    std::cout << "sizeof long "<< sizeof(long) << std::endl;
+    using SIRArray=std::array<int64_t,3>;
+    std::cout << "sir array size " << sizeof(SIRArray) << std::endl;
+    using SIRTuple=std::tuple<SIRArray,double>;
+    std::cout << "entry size " << sizeof(SIRTuple) << std::endl;
+  }
 
   TrajectorySave observer;
   std::map<SIRParam,double> params;
@@ -99,6 +110,12 @@ int main(int argc, char *argv[])
 
 
   SIR_run(end_time, individual_cnt, params, observer, rng);
-
+  HDFFile file("sirexp.h5");
+  if (file.Open()) {
+    file.SaveTrajectory(rand_seed, observer.trajectory_);
+    file.Close();
+  } else {
+    std::cout << "Could not open HDF5 file." << std::endl;
+  }
   return 0;
 }

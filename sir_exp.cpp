@@ -274,7 +274,7 @@ struct SIROutput
     auto R=Length<0>(state.marking, places_[2]);
     //std::cout << "(" << S << "," << I << "," << R << ") "
     //  << state.CurrentTime() << std::endl;
-    observer_.Step(StateArray{S, I, R}, state.CurrentTime());
+    observer_.Step({S, I, R, state.CurrentTime()});
   }
 
   void final(const SIRState& state) {
