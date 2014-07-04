@@ -15,6 +15,7 @@ struct TrajectoryEntry {
   double t;
   TrajectoryEntry(int64_t s, int64_t i, int64_t r, double t)
   : s(s), i(i), r(r), t(t) {}
+  TrajectoryEntry()=default;
 };
 
 class TrajectoryObserver

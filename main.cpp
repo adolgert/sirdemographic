@@ -11,7 +11,6 @@
 
 class TrajectorySave : public TrajectoryObserver
 {
-  using StateArray=std::array<int64_t,3>;
  public:
   std::vector<TrajectoryEntry> trajectory_;
 
@@ -22,13 +21,42 @@ class TrajectorySave : public TrajectoryObserver
 
 
 
+class PercentTrajectorySave : public TrajectoryObserver
+{
+  int64_t step_{0};
+  int64_t threshhold_{0};
+  double percent_{0.0001};
+
+  TrajectoryEntry last_{0,0,0,0};
+ public:
+  std::vector<TrajectoryEntry> trajectory_;
+  PercentTrajectorySave() {}
+
+  virtual void Step(TrajectoryEntry sirt) override {
+    if (0==step_) {
+      last_=sirt;
+      threshhold_=std::floor(percent_*(sirt.s+sirt.i+sirt.r));
+      trajectory_.emplace_back(sirt);
+    } else {
+      bool ps=std::abs(sirt.s-last_.s)>threshhold_;
+      bool pi=std::abs(sirt.i-last_.i)>threshhold_;
+      bool pr=std::abs(sirt.r-last_.r)>threshhold_;
+      if (ps||pi||pr) {
+        trajectory_.emplace_back(sirt);
+        last_=sirt;
+      }
+    }
+    ++step_;
+  }
+};
+
+
+
 int main(int argc, char *argv[])
 {
   namespace po=boost::program_options;
   po::options_description desc("Well-mixed SIR");
-  int64_t individual_cnt=10000;
-  int64_t infected_start=std::floor(individual_cnt*0.001);
-  int64_t recovered_start=std::floor(individual_cnt*0.9);
+  int64_t individual_cnt=100000;
   size_t rand_seed=1;
   // Time is in years.
   double beta0=400; // Rate of infection is over one per day.
@@ -64,6 +92,9 @@ int main(int argc, char *argv[])
     ("birth",
       po::value<double>(&birthrate)->default_value(birthrate),
       "parameter for birth")
+    ("endtime",
+      po::value<double>(&end_time)->default_value(end_time),
+      "parameter for birth")
     ("loglevel", po::value<std::string>(&log_level)->default_value("info"),
       "Set the logging level to trace, debug, info, warning, error, or fatal.")
     ("translate",
@@ -89,15 +120,8 @@ int main(int argc, char *argv[])
     double tolerance=TestSeasonal(0.6);
     std::cout << "Seasonal tolerance " << tolerance << std::endl;
   }
-  {
-    std::cout << "sizeof long "<< sizeof(long) << std::endl;
-    using SIRArray=std::array<int64_t,3>;
-    std::cout << "sir array size " << sizeof(SIRArray) << std::endl;
-    using SIRTuple=std::tuple<SIRArray,double>;
-    std::cout << "entry size " << sizeof(SIRTuple) << std::endl;
-  }
 
-  TrajectorySave observer;
+  PercentTrajectorySave observer;
   std::map<SIRParam,double> params;
 
   params[SIRParam::Beta0]=beta0;
@@ -107,9 +131,15 @@ int main(int argc, char *argv[])
   // which creates a fixed point in the phase plane.
   params[SIRParam::Birth]=birthrate*individual_cnt;
   params[SIRParam::Mu]=deathrate;
-
+  BOOST_LOG_TRIVIAL(info)<<"beta0 "<<params[SIRParam::Beta0];
+  BOOST_LOG_TRIVIAL(info)<<"beta1 "<<params[SIRParam::Beta1];
+  BOOST_LOG_TRIVIAL(info)<<"gamma "<<params[SIRParam::Gamma];
+  BOOST_LOG_TRIVIAL(info)<<"birth "<<params[SIRParam::Birth];
+  BOOST_LOG_TRIVIAL(info)<<"death "<<params[SIRParam::Mu];
 
   SIR_run(end_time, individual_cnt, params, observer, rng);
+
+  BOOST_LOG_TRIVIAL(info)<<"saved "<<observer.trajectory_.size()<<" points";
   HDFFile file("sirexp.h5");
   if (file.Open()) {
     file.SaveTrajectory(rand_seed, observer.trajectory_);

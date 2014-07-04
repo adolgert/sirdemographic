@@ -107,10 +107,12 @@ class Infect : public SIRTransition
     auto I=lm.template Length<0>(1);
     auto R=lm.template Length<0>(2);
     if (S>0 && I>0) {
-      double rate=S*s.params.at(SIRParam::Beta0)*
-        (1+s.params.at(SIRParam::Beta0)*
+      double rate=S*I*s.params.at(SIRParam::Beta0)*
+        (1+s.params.at(SIRParam::Beta1)*
           std::cos(2*boost::math::constants::pi<double>()*t0))/
           (S+I+R);
+      BOOST_LOG_TRIVIAL(trace)<<"infection rate "<<rate<<" beta0 "<<
+        s.params.at(SIRParam::Beta0) << " t0 " << t0 << " N "<<(S+I+R);
       return {true, std::unique_ptr<ExpDist>(new ExpDist(rate, te))};
     } else {
       return {false, std::unique_ptr<Dist>(nullptr)};
@@ -134,8 +136,10 @@ class Recover : public SIRTransition
     double te, double t0) const override {
     auto I=lm.template Length<0>(0);
     if (I>0) {
+      double rate=I*s.params.at(SIRParam::Gamma);
+      BOOST_LOG_TRIVIAL(trace)<<"recover rate "<< rate;
       return {true, std::unique_ptr<ExpDist>(
-        new ExpDist(I*s.params.at(SIRParam::Gamma), te))};
+        new ExpDist(rate, te))};
     } else {
       return {false, std::unique_ptr<Dist>(nullptr)};
     }
@@ -254,27 +258,50 @@ template<typename SIRState>
 struct SIROutput
 {
   std::vector<int64_t> places_;
+  std::map<int64_t,int> transitions_;
   using StateArray=std::array<int64_t,3>;
   double max_time_;
   int64_t max_count_;
   TrajectoryObserver& observer_;
+  std::array<int64_t,3> sir_;
 
   SIROutput(double max_time, int64_t max_count,
-    const std::vector<int64_t>& sir_places, TrajectoryObserver& observer)
+    const std::vector<int64_t>& sir_places,
+    const std::map<int64_t,int>& sir_transitions,
+    TrajectoryObserver& observer)
   : places_{sir_places}, max_time_(max_time), max_count_(max_count),
-    observer_(observer)
+    observer_(observer), transitions_(sir_transitions)
   {};
 
   int64_t step_cnt{0};
 
   void operator()(const SIRState& state) {
-    ++step_cnt;
     auto S=Length<0>(state.marking, places_[0]);
     auto I=Length<0>(state.marking, places_[1]);
     auto R=Length<0>(state.marking, places_[2]);
+
+    if (step_cnt>0) {
+      switch (transitions_[state.last_transition]) {
+        case 0: // infect
+          assert(S+I+R==sir_[0]+sir_[1]+sir_[2]);
+          assert(sir_[0]-S==1);
+          assert(I-sir_[1]==1);
+          break;
+        case 1: // recover
+          assert(S+I+R==sir_[0]+sir_[1]+sir_[2]);
+          assert(sir_[1]-I==1);
+          assert(R-sir_[2]==1);
+          break;
+      }
+    }
+
+    ++step_cnt;
     //std::cout << "(" << S << "," << I << "," << R << ") "
     //  << state.CurrentTime() << std::endl;
     observer_.Step({S, I, R, state.CurrentTime()});
+    sir_[0]=S;
+    sir_[1]=I;
+    sir_[2]=R;
   }
 
   void final(const SIRState& state) {
@@ -288,8 +315,17 @@ int64_t SIR_run(double end_time, int64_t individual_cnt,
     std::map<SIRParam,double> parameters, TrajectoryObserver& observer,
     RandGen& rng)
 {
-  int64_t infected_start=std::floor(individual_cnt*0.001);
-  int64_t recovered_start=std::floor(individual_cnt*0.9);
+  double b=parameters[SIRParam::Beta0];
+  double m=parameters[SIRParam::Mu];
+  double g=parameters[SIRParam::Gamma];
+  double B=parameters[SIRParam::Birth];
+
+  // Start at long-time averages for fixed forcing.
+  int64_t susceptible_start=std::floor((m+g)*individual_cnt/b);
+  int64_t infected_start=std::floor(individual_cnt*(b-m-g)*m/(b*(m+g)));
+  int64_t recovered_start=individual_cnt-(susceptible_start+infected_start);
+  BOOST_LOG_TRIVIAL(info)<<"Starting with S="<<susceptible_start<<", I="<<
+    infected_start<<", R="<<recovered_start;
 
   auto gspn=BuildSystem(individual_cnt);
 
@@ -305,8 +341,7 @@ int64_t SIR_run(double end_time, int64_t individual_cnt,
   }
 
   auto susceptible_place=gspn.PlaceVertex({0});
-  auto susc_start=individual_cnt-infected_start-recovered_start;
-  for (int64_t sus_idx=0; sus_idx<susc_start; ++sus_idx) {
+  for (int64_t sus_idx=0; sus_idx<susceptible_start; ++sus_idx) {
     Add<0>(state.marking, susceptible_place, IndividualToken{});
   }
   auto infected_place=gspn.PlaceVertex({1});
@@ -318,6 +353,7 @@ int64_t SIR_run(double end_time, int64_t individual_cnt,
     Add<0>(state.marking, recovered_place, IndividualToken{});
   }
 
+  //using Propagator=PropagateCompetingProcesses<int64_t,RandGen>;
   using Propagator=NonHomogeneousPoissonProcesses<int64_t,RandGen>;
   Propagator competing;
   using Dynamics=StochasticDynamics<SIRGSPN,SIRState,RandGen>;
@@ -325,16 +361,28 @@ int64_t SIR_run(double end_time, int64_t individual_cnt,
 
   BOOST_LOG_TRIVIAL(debug) << state.marking;
 
+  std::map<int64_t,int> trans;
+  for (size_t t_idx=0; t_idx<6; ++t_idx) {
+    trans[gspn.TransitionVertex(t_idx)]=t_idx;
+  }
+
   SIROutput<SIRState> output_function(end_time, individual_cnt*2,
     {susceptible_place, infected_place,
-      recovered_place}, observer);
+      recovered_place}, trans, observer);
 
   dynamics.Initialize(&state, &rng);
 
   bool running=true;
   auto nothing=[](SIRState&)->void {};
+  double last_time=state.CurrentTime();
   while (running && state.CurrentTime()<end_time) {
     running=dynamics(state);
+    double new_time=state.CurrentTime();
+    if (new_time-last_time<-1e-4) {
+      BOOST_LOG_TRIVIAL(warning) << "last time "<<last_time <<" "
+        << " new_time "<<new_time;
+    }
+    last_time=new_time;
     output_function(state);
   }
   output_function.final(state);

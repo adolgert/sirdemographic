@@ -43,15 +43,17 @@ scaling invariance, which you can see by adding the equations,
 At long times and for fixed $\beta$,
 \begin{eqnarray}
   N & = & B/\mu \\
-  R & = & \gamma I/\mu \\
-  I & = & \frac{(\beta-\mu-\gamma)\mu}{\gamma\beta}.
+  S & = & \frac{(\mu+\gamma)B}{\beta \mu} \\
+  I & = & \frac{(\beta-\mu-\gamma)B}{\beta(\mu+\gamma)} \\
+  R & = & \gamma I/\mu
 \end{eqnarray}
 The model seems well-behaved. We are interested in adding a seasonal
 dependency to this model, so $\beta=\beta_0(1+\beta_1 \cos(2\pi (t-t_i))).$
 Time is measured in years, here. The values used in the example
-are
+are \\
 \begin{tabular}{ll}
 B & 1/70 per year \\
+$\beta$ & 400 per year \\
 $\mu$ & 1/70 per year \\
 $\gamma$ & 365/14 per year.
 \end{tabular}
