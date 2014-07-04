@@ -1,5 +1,6 @@
 #include <sstream>
 #include <cassert>
+#include <mutex>
 #include "hdf_file.hpp"
 #include "hdf5.h"
 #include "smv.hpp"
@@ -11,6 +12,7 @@ class HDFFile::impl {
 	hid_t file_id_;
   std::string filename_;
   bool open_;
+  mutable std::mutex single_writer_;
  public:
   impl(const std::string& filename) : filename_(filename), open_(false) {}
   ~impl() { this->Close(); }
@@ -43,7 +45,9 @@ class HDFFile::impl {
     return true;
   }
 
-  bool SaveTrajectory(int seed, const TrajectoryType& trajectory) {
+
+  bool SaveTrajectory(int seed, int idx, const TrajectoryType& trajectory) const {
+    std::unique_lock<std::mutex> only_me(single_writer_);
     assert(open_);
     hsize_t dims[1];
     dims[0]=trajectory.size();
@@ -86,7 +90,7 @@ class HDFFile::impl {
     }
 
     std::stringstream dset_name;
-    dset_name << "/trajectory/dset" << seed;
+    dset_name << "/trajectory/dset" << seed << "-" << idx;
     hid_t dataset_id=H5Dcreate2(file_id_, dset_name.str().c_str(),
       write_trajectory_type, dataspace_id, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
     if (dataset_id<0) {
@@ -121,6 +125,11 @@ HDFFile::HDFFile(const std::string& fname) : pimpl{ new impl{ fname }} {}
 HDFFile::~HDFFile() {}
 bool HDFFile::Open() { return pimpl->Open(); }
 bool HDFFile::Close() { return pimpl->Close(); }
-bool HDFFile::SaveTrajectory(int seed, const TrajectoryType& traj) {
-  return pimpl->SaveTrajectory(seed, traj);
+bool HDFFile::SaveTrajectory(int seed, int idx, const TrajectoryType& traj) const {
+  return pimpl->SaveTrajectory(seed, idx, traj);
+}
+HDFFile::HDFFile(const HDFFile& o)
+: pimpl(o.pimpl) {}
+HDFFile& HDFFile::operator=(const HDFFile& o) {
+  pimpl=o.pimpl;
 }

@@ -10,16 +10,16 @@
 class HDFFile {
  public:
   using TrajectoryType=std::vector<TrajectoryEntry>;
-  HDFFile(const std::string& filename);
-  HDFFile(const HDFFile&)=delete;
-  HDFFile& operator=(const HDFFile&)=delete;
+  explicit HDFFile(const std::string& filename);
+  HDFFile(const HDFFile& o);
+  HDFFile& operator=(const HDFFile&);
   ~HDFFile();
   bool Open();
   bool Close();
-  bool SaveTrajectory(int seed, const TrajectoryType& trajectory);
+  bool SaveTrajectory(int seed, int idx, const TrajectoryType& trajectory) const;
  private:
   class impl;
-  std::unique_ptr<impl> pimpl;
+  std::shared_ptr<impl> pimpl;
 };
 
 

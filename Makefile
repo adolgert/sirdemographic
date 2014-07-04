@@ -1,8 +1,8 @@
 # Requires:
-#   BOOST libraries
-#   Gnu scientific libraries (GSL)
-#   HDF5 library
-#   Semi-Markov library
+#   BOOST libraries: boost.org
+#   Gnu scientific libraries (GSL): https://www.gnu.org/software/gsl
+#   HDF5 library: http://www.hdfgroup.org/HDF5/
+#   Semi-Markov library: https://github.com/afidd/Semi-Markov
 
 BOOST=/usr/local/boost_1_54_0mt
 # Different Boost installations have different suffixes.
@@ -12,8 +12,8 @@ SEMIMARKOV=/usr/local/include/semimarkov-0.1
 HDF5=/usr/local/hdf5-1.8.11
 
 CXX=g++
-# -DSMVHIDELOG
-OPT=-g -O2 
+# -DSMVHIDELOG -pg
+OPT=-g -O2
 INCLUDES=-I$(SEMIMARKOV) -I. -I$(BOOST)/include -I$(HDF5)/include
 LIBS=-L$(BOOST)/lib -L$(HDF5)/lib -lboost_unit_test_framework$(BOOSTVARIANT) \
 	-lboost_log_setup$(BOOSTVARIANT) -lboost_log$(BOOSTVARIANT) \

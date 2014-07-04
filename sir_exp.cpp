@@ -103,16 +103,19 @@ class Infect : public SIRTransition
   virtual std::pair<bool, std::unique_ptr<Dist>>
   Enabled(const UserState& s, const Local& lm,
     double te, double t0) const override {
-    auto S=lm.template Length<0>(0);
-    auto I=lm.template Length<0>(1);
-    auto R=lm.template Length<0>(2);
+    // If these are just size_t, then the rate calculation overflows.
+    int64_t S=lm.template Length<0>(0);
+    int64_t I=lm.template Length<0>(1);
+    int64_t R=lm.template Length<0>(2);
     if (S>0 && I>0) {
       double rate=S*I*s.params.at(SIRParam::Beta0)*
-        (1+s.params.at(SIRParam::Beta1)*
+        (1.0+s.params.at(SIRParam::Beta1)*
           std::cos(2*boost::math::constants::pi<double>()*t0))/
           (S+I+R);
       BOOST_LOG_TRIVIAL(trace)<<"infection rate "<<rate<<" beta0 "<<
-        s.params.at(SIRParam::Beta0) << " t0 " << t0 << " N "<<(S+I+R);
+        s.params.at(SIRParam::Beta0) << " beta1 " <<
+        s.params.at(SIRParam::Beta1) << " t0 " << t0 << " N "<<(S+I+R)
+        << " S "<<S <<" I " << I;
       return {true, std::unique_ptr<ExpDist>(new ExpDist(rate, te))};
     } else {
       return {false, std::unique_ptr<Dist>(nullptr)};
@@ -321,8 +324,8 @@ int64_t SIR_run(double end_time, int64_t individual_cnt,
   double B=parameters[SIRParam::Birth];
 
   // Start at long-time averages for fixed forcing.
-  int64_t susceptible_start=std::floor((m+g)*individual_cnt/b);
-  int64_t infected_start=std::floor(individual_cnt*(b-m-g)*m/(b*(m+g)));
+  int64_t infected_start=std::floor((m+g)*individual_cnt/b);
+  int64_t susceptible_start=std::floor(individual_cnt*(b-m-g)*m/(b*(m+g)));
   int64_t recovered_start=individual_cnt-(susceptible_start+infected_start);
   BOOST_LOG_TRIVIAL(info)<<"Starting with S="<<susceptible_start<<", I="<<
     infected_start<<", R="<<recovered_start;
