@@ -28,16 +28,17 @@ def plot_single(traj_dset):
 
 
 
-def foreach_trajectory(filename):
+def foreach_trajectory(filename, func):
     import h5py
     f=h5py.File(filename, "r")
     trajectories=f['/trajectory']
 
     for trajectory_name in trajectories:
         dset=trajectories[trajectory_name]
-        plot_single(dset)
+        func(dset)
 
 
 
 if __name__ == "__main__":
-    foreach_trajectory("sirexp.h5")
+    foreach_trajectory("sirexp.h5", print)
+    foreach_trajectory("sirexp.h5", plot_single)
