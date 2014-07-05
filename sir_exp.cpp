@@ -314,10 +314,12 @@ struct SIROutput
 
 
 
-int64_t SIR_run(double end_time, int64_t individual_cnt,
+int64_t SIR_run(double end_time, const std::vector<int64_t>& sir_cnt,
     const std::vector<Parameter>& parameters, TrajectoryObserver& observer,
     RandGen& rng)
 {
+  int64_t individual_cnt=std::accumulate(sir_cnt.begin(), sir_cnt.end(),
+    int64_t{0});
   auto gspn=BuildSystem(individual_cnt);
 
   // Marking of the net.
@@ -331,29 +333,16 @@ int64_t SIR_run(double end_time, int64_t individual_cnt,
     state.user.params[cp.kind]=cp.value;
   }
 
-  double b=state.user.params[SIRParam::Beta0];
-  double m=state.user.params[SIRParam::Mu];
-  double g=state.user.params[SIRParam::Gamma];
-  double B=state.user.params[SIRParam::Birth];
-
-  // Start at long-time averages for fixed forcing.
-  int64_t susceptible_start=std::floor((m+g)*individual_cnt/b);
-  int64_t infected_start=std::floor(individual_cnt*(b-m-g)*m/(b*(m+g)));
-  int64_t recovered_start=individual_cnt-(susceptible_start+infected_start);
-  BOOST_LOG_TRIVIAL(info)<<"Starting with S="<<susceptible_start<<", I="<<
-    infected_start<<", R="<<recovered_start;
-
-  auto susceptible_place=gspn.PlaceVertex({0});
-  for (int64_t sus_idx=0; sus_idx<susceptible_start; ++sus_idx) {
-    Add<0>(state.marking, susceptible_place, IndividualToken{});
+  std::vector<int64_t> sir_places;
+  for (int place_idx=0; place_idx<3; ++place_idx) {
+    auto place=gspn.PlaceVertex({place_idx});
+    sir_places.push_back(place);
   }
-  auto infected_place=gspn.PlaceVertex({1});
-  for (int64_t inf_idx=0; inf_idx<infected_start; ++inf_idx) {
-    Add<0>(state.marking, infected_place, IndividualToken{});
-  }
-  auto recovered_place=gspn.PlaceVertex({2});
-  for (int64_t rec_idx=0; rec_idx<recovered_start; ++rec_idx) {
-    Add<0>(state.marking, recovered_place, IndividualToken{});
+
+  for (int64_t sir_idx=0; sir_idx<3; ++sir_idx) {
+    for (int64_t sus_idx=0; sus_idx<sir_cnt[sir_idx]; ++sus_idx) {
+      Add<0>(state.marking, sir_places[sir_idx], IndividualToken{});
+    }
   }
 
   //using Propagator=PropagateCompetingProcesses<int64_t,RandGen>;
@@ -370,8 +359,7 @@ int64_t SIR_run(double end_time, int64_t individual_cnt,
   }
 
   SIROutput<SIRState> output_function(end_time, individual_cnt*2,
-    {susceptible_place, infected_place,
-      recovered_place}, trans, observer);
+    sir_places, trans, observer);
 
   dynamics.Initialize(&state, &rng);
 

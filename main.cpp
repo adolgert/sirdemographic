@@ -183,6 +183,9 @@ int main(int argc, char *argv[])
   namespace po=boost::program_options;
   po::options_description desc("Well-mixed SIR with demographics.");
   int64_t individual_cnt=100000;
+  int64_t infected_cnt=individual_cnt*0.1;
+  int64_t recovered_cnt=individual_cnt*0.8;
+
   int run_cnt=1;
   size_t rand_seed=1;
   // Time is in years.
@@ -215,7 +218,13 @@ int main(int argc, char *argv[])
     ("size,s",
       po::value<int64_t>(&individual_cnt)->default_value(individual_cnt),
       "size of the population")
-    ("seed,r",
+    ("infected,i",
+      po::value<int64_t>(&infected_cnt),
+      "size of the population")
+    ("recovered,r",
+      po::value<int64_t>(&recovered_cnt),
+      "size of the population")
+    ("seed",
       po::value<size_t>(&rand_seed)->default_value(rand_seed),
       "seed for random number generator")
     ("endtime",
@@ -263,11 +272,40 @@ int main(int argc, char *argv[])
 
   std::map<SIRParam,double> params;
 
+  auto getp=[&](SIRParam fp)->double& {
+    return std::find_if(parameters.begin(), parameters.end(),
+      [fp](const Parameter& p) { return p.kind==fp; })->value;
+  };
+
   // Birthrate is not frequency-dependent. It scales differently
   // which creates a fixed point in the phase plane.
-  std::find_if(parameters.begin(), parameters.end(), [](const Parameter& p) {
-    return p.kind==SIRParam::Birth;
-  })->value*=individual_cnt;
+  getp(SIRParam::Birth)*=individual_cnt;
+
+  if (vm.count("infected") and !vm.count("recovered") ||
+      !vm.count("infected") and vm.count("recovered")) {
+    std::cout << "You have so set the total and I and R, not just some of them."
+      << std::endl;
+    return -3;
+  } else if (!vm.count("infected") && !vm.count("recovered")) {
+    double b=getp(SIRParam::Beta0);
+    double m=getp(SIRParam::Mu);
+    double g=getp(SIRParam::Gamma);
+    double B=getp(SIRParam::Birth);
+    // Long-time averages for fixed forcing for ODE model.
+    int64_t susceptible_start=std::floor((m+g)*individual_cnt/b);
+    infected_cnt=std::floor(individual_cnt*(b-m-g)*m/(b*(m+g)));
+    recovered_cnt=individual_cnt-(susceptible_start+infected_cnt);
+  }
+
+  int64_t susceptible_cnt=individual_cnt-(infected_cnt+recovered_cnt);
+  assert(susceptible_cnt>0);
+  if (susceptible_cnt<0) {
+    BOOST_LOG_TRIVIAL(error)<<"Number of susceptibles is "<<susceptible_cnt;
+    return -2;
+  }
+  std::vector<int64_t> sir_init{susceptible_cnt, infected_cnt, recovered_cnt};
+  BOOST_LOG_TRIVIAL(info)<<"Starting with sir="<<sir_init[0]<<" "<<sir_init[1]
+    <<" "<<sir_init[2];
 
   for (auto& showp : parameters) {
     BOOST_LOG_TRIVIAL(info)<<showp.name<<" "<<showp.value;
@@ -285,11 +323,11 @@ int main(int argc, char *argv[])
     TrajectorySave exact_observer;
     PercentTrajectorySave observer;
     if (exacttraj) {
-      SIR_run(end_time, individual_cnt, parameters, exact_observer, rng);
+      SIR_run(end_time, sir_init, parameters, exact_observer, rng);
       file.SaveTrajectory(parameters, single_seed, idx,
         exact_observer.trajectory_);
     } else {
-      SIR_run(end_time, individual_cnt, parameters, observer, rng);
+      SIR_run(end_time, sir_init, parameters, observer, rng);
       file.SaveTrajectory(parameters, single_seed, idx, observer.trajectory_);
     }
   };

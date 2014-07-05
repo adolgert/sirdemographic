@@ -34,7 +34,7 @@ public:
 };
 
 
-int64_t SIR_run(double time_limit, int64_t individual_cnt,
+int64_t SIR_run(double time_limit, const std::vector<int64_t>& sir_cnt,
     const std::vector<Parameter>& parameters, TrajectoryObserver& observer,
     RandGen& rng);
 
