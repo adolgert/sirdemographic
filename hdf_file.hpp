@@ -19,7 +19,7 @@ class HDFFile {
   bool SaveTrajectory(const std::vector<Parameter>& params,
     int seed, int idx, const TrajectoryType& trajectory) const;
   bool WriteExecutableData(const std::string& version, const std::string& cfg,
-    const std::string& compile_time) const;
+    const std::string& compile_time, const std::vector<int64_t>&) const;
  private:
   class impl;
   std::shared_ptr<impl> pimpl;

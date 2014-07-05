@@ -32,7 +32,7 @@ class HDFFile::impl {
 
 
   bool WriteExecutableData(const std::string& version, const std::string& cfg,
-    const std::string& compile_time) const {
+    const std::string& compile_time, const std::vector<int64_t>& siri) const {
     std::unique_lock<std::mutex> only_me(single_writer_);
 
     hsize_t adims=1;
@@ -62,6 +62,19 @@ class HDFFile::impl {
       H5Tclose(strtype);
       H5Aclose(attr0_id);
     }
+
+    std::vector<std::string> sirn{"Initial S", "Initial I", "Initial R"};
+    for (int comp_idx=0; comp_idx<siri.size(); ++comp_idx) {
+      hid_t attr1_id=H5Acreate2(trajectory_group_, sirn[comp_idx].c_str() ,
+        H5T_STD_I64LE, dspace_id, H5P_DEFAULT, H5P_DEFAULT);
+      herr_t at1status=H5Awrite(attr1_id, H5T_NATIVE_LONG, &siri[comp_idx]);
+      if (at1status<0) {
+        BOOST_LOG_TRIVIAL(error)<<"Could not write attribute "<<sirn[comp_idx];
+        return false;
+      }
+      H5Aclose(attr1_id);
+    }
+
     H5Sclose(dspace_id);
     return true;
   }
@@ -184,8 +197,8 @@ bool HDFFile::SaveTrajectory(const std::vector<Parameter>& params,
 }
 bool HDFFile::WriteExecutableData(const std::string& version,
     const std::string& cfg,
-    const std::string& compile_time) const {
-  return pimpl->WriteExecutableData(version, cfg, compile_time);
+    const std::string& compile_time, const std::vector<int64_t>& siri) const {
+  return pimpl->WriteExecutableData(version, cfg, compile_time, siri);
 }
 HDFFile::HDFFile(const HDFFile& o)
 : pimpl(o.pimpl) {}

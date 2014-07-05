@@ -325,7 +325,7 @@ int main(int argc, char *argv[]) {
     BOOST_LOG_TRIVIAL(error)<<"could not open output file: "<<output_file;
     return -1;
   }
-  file.WriteExecutableData(VERSION, CFG, COMPILETIME);
+  file.WriteExecutableData(VERSION, CFG, COMPILETIME, sir_init);
 
   auto runnable=[=](RandGen& rng, size_t single_seed, size_t idx)->void {
     std::shared_ptr<TrajectoryObserver> observer=0;
