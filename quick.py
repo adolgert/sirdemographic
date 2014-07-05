@@ -1,9 +1,14 @@
+import logging
 import numpy as np
 import matplotlib.pyplot as plt
+import h5py
+from default_parser import DefaultArgumentParser
 
+logger=logging.getLogger(__file__)
 
 def plot_single(traj_dset):
     cnt=len(traj_dset)
+    logger.debug("{0} values in dataset".format(cnt))
     # The dataset is an array of tuples, not a 2d array.
     s=np.zeros(cnt, np.int64)
     i=np.zeros(cnt, np.int64)
@@ -28,9 +33,7 @@ def plot_single(traj_dset):
 
 
 
-def foreach_trajectory(filename, func):
-    import h5py
-    f=h5py.File(filename, "r")
+def foreach_trajectory(f, func):
     trajectories=f['/trajectory']
 
     for trajectory_name in trajectories:
@@ -42,11 +45,37 @@ def showds(ds):
     print(ds)
     attributes=list()
     for x in ds.attrs:
-        attributes.append("{0} {1}".format(x, ds.attrs[x]))
+        attributes.append("{0} {1}".format(x, ds.attrs[x][0]))
     print("  {0}".format(", ".join(attributes)))
 
 
+def showproginfo(f):
+    attrs=f['/trajectory'].attrs
+    for x in attrs:
+        print(attrs[x][0].decode())
+
 
 if __name__ == "__main__":
-    foreach_trajectory("sirexp.h5", showds)
+    logging.basicConfig(level=logging.INFO)
+    parser=DefaultArgumentParser(description="Quick look at an H5 file")
+    parser.add_function("info", "Find what program made the file.")
+    parser.add_function("trajectory", "Plot the trajectory")
+    parser.add_function("dir", "List datasets")
+    parser.add_argument("--file", dest="file", action="store",
+        default="sirexp.h5", help="data file to read")
+
+    args=parser.parse_args()
+
+    filename=args.file
+    f=h5py.File(filename, "r")
+
+    if args.info:
+        showproginfo(f)
+    if args.trajectory:
+        foreach_trajectory(f, plot_single)
+    if args.dir:
+        foreach_trajectory(f, showds)
     #foreach_trajectory("sirexp.h5", plot_single)
+    if not parser.any_function():
+        parser.print_help()
+        

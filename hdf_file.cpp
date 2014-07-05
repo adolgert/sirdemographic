@@ -10,11 +10,13 @@
 
 class HDFFile::impl {
 	hid_t file_id_;
+  hid_t trajectory_group_;
   std::string filename_;
   bool open_;
   mutable std::mutex single_writer_;
  public:
-  impl(const std::string& filename) : filename_(filename), open_(false) {}
+  impl(const std::string& filename) : filename_(filename), open_(false),
+    file_id_(0), trajectory_group_(0) {}
   ~impl() { this->Close(); }
   bool Open() {
     file_id_=H5Fcreate(filename_.c_str(), H5F_ACC_TRUNC, H5P_DEFAULT,
@@ -23,18 +25,55 @@ class HDFFile::impl {
 
     open_=true;
 
-    hid_t group_id=H5Gcreate(file_id_, "/trajectory", H5P_DEFAULT,
+    trajectory_group_=H5Gcreate(file_id_, "/trajectory", H5P_DEFAULT,
       H5P_DEFAULT, H5P_DEFAULT);
-    herr_t group_status=H5Gclose(group_id);
-    if (group_status<0) {
-      BOOST_LOG_TRIVIAL(warning)<<"Could not close HDF5 group "<<group_status;
-      return false;
-    }
     return true;
   }
 
+
+  bool WriteExecutableData(const std::string& version, const std::string& cfg,
+    const std::string& compile_time) const {
+    std::unique_lock<std::mutex> only_me(single_writer_);
+
+    hsize_t adims=1;
+    hid_t dspace_id=H5Screate_simple(1, &adims, NULL);
+
+    std::map<std::string,std::string> key_value;
+    key_value["VERSION"]=version;
+    key_value["CONFIG"]=cfg;
+    key_value["COMPILETIME"]=compile_time;
+
+    for (const auto& kv : key_value) {
+      hid_t strtype=H5Tcopy(H5T_C_S1);
+      herr_t strstatus=H5Tset_size(strtype, kv.second.size());
+      if (strstatus<0) {
+        BOOST_LOG_TRIVIAL(error)
+          <<"Could not create string for executable data.";
+          return false;
+      }
+
+      hid_t attr0_id=H5Acreate2(trajectory_group_, kv.first.c_str() , strtype,
+        dspace_id, H5P_DEFAULT, H5P_DEFAULT);
+      herr_t atstatus=H5Awrite(attr0_id, strtype, kv.second.c_str());
+      if (atstatus<0) {
+        BOOST_LOG_TRIVIAL(error)<<"Could not write attribute "<<kv.first;
+        return false;
+      }
+      H5Tclose(strtype);
+      H5Aclose(attr0_id);
+    }
+    H5Sclose(dspace_id);
+    return true;
+  }
+
+
   bool Close() {
     if (open_) {
+      herr_t group_status=H5Gclose(trajectory_group_);
+      if (group_status<0) {
+        BOOST_LOG_TRIVIAL(warning)<<"Could not close HDF5 group "<<group_status;
+        return false;
+      }
       herr_t status=H5Fclose(file_id_);
       if (status<0) {
         BOOST_LOG_TRIVIAL(warning)<<"Could not close HDF5 file "<<status;
@@ -142,6 +181,11 @@ bool HDFFile::Close() { return pimpl->Close(); }
 bool HDFFile::SaveTrajectory(const std::vector<Parameter>& params,
   int seed, int idx, const TrajectoryType& traj) const {
   return pimpl->SaveTrajectory(params, seed, idx, traj);
+}
+bool HDFFile::WriteExecutableData(const std::string& version,
+    const std::string& cfg,
+    const std::string& compile_time) const {
+  return pimpl->WriteExecutableData(version, cfg, compile_time);
 }
 HDFFile::HDFFile(const HDFFile& o)
 : pimpl(o.pimpl) {}

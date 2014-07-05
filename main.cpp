@@ -279,6 +279,7 @@ int main(int argc, char *argv[])
     BOOST_LOG_TRIVIAL(error)<<"could not open output file: "<<output_file;
     return -1;
   }
+  file.WriteExecutableData(VERSION, CFG, COMPILETIME);
 
   auto runnable=[=](RandGen& rng, size_t single_seed, size_t idx)->void {
     TrajectorySave exact_observer;
