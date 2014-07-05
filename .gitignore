@@ -19,3 +19,22 @@
 *.exe
 *.out
 *.app
+sirexp
+
+# Automatically built, so don't add it.
+sirdemo_version.hpp
+
+# Latex spittle
+*.aux
+*.bbl
+*.blg
+*.fdb_latexmk
+*.fls
+freqsir.pdf
+*.log
+
+# Pythonic
+__pycache__
+
+# My temp file name, thanks to Craig Loomis.
+z*.txt
