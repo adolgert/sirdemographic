@@ -315,21 +315,9 @@ struct SIROutput
 
 
 int64_t SIR_run(double end_time, int64_t individual_cnt,
-    std::map<SIRParam,double> parameters, TrajectoryObserver& observer,
+    const std::vector<Parameter>& parameters, TrajectoryObserver& observer,
     RandGen& rng)
 {
-  double b=parameters[SIRParam::Beta0];
-  double m=parameters[SIRParam::Mu];
-  double g=parameters[SIRParam::Gamma];
-  double B=parameters[SIRParam::Birth];
-
-  // Start at long-time averages for fixed forcing.
-  int64_t infected_start=std::floor((m+g)*individual_cnt/b);
-  int64_t susceptible_start=std::floor(individual_cnt*(b-m-g)*m/(b*(m+g)));
-  int64_t recovered_start=individual_cnt-(susceptible_start+infected_start);
-  BOOST_LOG_TRIVIAL(info)<<"Starting with S="<<susceptible_start<<", I="<<
-    infected_start<<", R="<<recovered_start;
-
   auto gspn=BuildSystem(individual_cnt);
 
   // Marking of the net.
@@ -339,9 +327,21 @@ int64_t SIR_run(double end_time, int64_t individual_cnt,
   using SIRState=GSPNState<Mark,SIRGSPN::TransitionKey,WithParams>;
 
   SIRState state;
-  for (auto& kv : parameters) {
-    state.user.params[kv.first]=kv.second;
+  for (auto& cp : parameters) {
+    state.user.params[cp.kind]=cp.value;
   }
+
+  double b=state.user.params[SIRParam::Beta0];
+  double m=state.user.params[SIRParam::Mu];
+  double g=state.user.params[SIRParam::Gamma];
+  double B=state.user.params[SIRParam::Birth];
+
+  // Start at long-time averages for fixed forcing.
+  int64_t susceptible_start=std::floor((m+g)*individual_cnt/b);
+  int64_t infected_start=std::floor(individual_cnt*(b-m-g)*m/(b*(m+g)));
+  int64_t recovered_start=individual_cnt-(susceptible_start+infected_start);
+  BOOST_LOG_TRIVIAL(info)<<"Starting with S="<<susceptible_start<<", I="<<
+    infected_start<<", R="<<recovered_start;
 
   auto susceptible_place=gspn.PlaceVertex({0});
   for (int64_t sus_idx=0; sus_idx<susceptible_start; ++sus_idx) {

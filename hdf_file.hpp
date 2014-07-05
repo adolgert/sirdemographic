@@ -16,7 +16,8 @@ class HDFFile {
   ~HDFFile();
   bool Open();
   bool Close();
-  bool SaveTrajectory(int seed, int idx, const TrajectoryType& trajectory) const;
+  bool SaveTrajectory(const std::vector<Parameter>& params,
+    int seed, int idx, const TrajectoryType& trajectory) const;
  private:
   class impl;
   std::shared_ptr<impl> pimpl;

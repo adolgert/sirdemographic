@@ -38,7 +38,15 @@ def foreach_trajectory(filename, func):
         func(dset)
 
 
+def showds(ds):
+    print(ds)
+    attributes=list()
+    for x in ds.attrs:
+        attributes.append("{0} {1}".format(x, ds.attrs[x]))
+    print("  {0}".format(", ".join(attributes)))
+
+
 
 if __name__ == "__main__":
-    foreach_trajectory("sirexp.h5", print)
-    foreach_trajectory("sirexp.h5", plot_single)
+    foreach_trajectory("sirexp.h5", showds)
+    #foreach_trajectory("sirexp.h5", plot_single)

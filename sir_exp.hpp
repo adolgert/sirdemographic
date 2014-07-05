@@ -7,6 +7,15 @@
 using RandGen=std::mt19937;
 
 enum class SIRParam { Beta0, Beta1, Gamma, Birth, Mu };
+struct Parameter {
+  SIRParam kind;
+  std::string name;
+  double value;
+  std::string description;
+  Parameter(SIRParam k, std::string n, double v, std::string desc)
+  : kind(k), name(n), value(v), description(desc) {}
+  Parameter()=default;
+};
 
 struct TrajectoryEntry {
   int64_t s;
@@ -26,7 +35,7 @@ public:
 
 
 int64_t SIR_run(double time_limit, int64_t individual_cnt,
-    std::map<SIRParam,double> parameters, TrajectoryObserver& observer,
+    const std::vector<Parameter>& parameters, TrajectoryObserver& observer,
     RandGen& rng);
 
 #endif

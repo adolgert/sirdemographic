@@ -38,9 +38,12 @@ hdf_file.o: hdf_file.cpp hdf_file.hpp
 	g++ hdf_file.cpp -DHAVE_CONFIG_H -std=c++11 -fPIC $(INCLUDES) $(OPT) \
 	-c -o hdf_file.o
 
-main.o: main.cpp
+main.o: main.cpp sirdemo_version.hpp
 	g++ main.cpp -DHAVE_CONFIG_H -std=c++11 -fPIC $(INCLUDES) $(OPT) \
 	-c -o main.o
 
+sirdemo_version.hpp: Makefile
+	python getgit.py
+
 clean:
-	rm -f *.o sirexp
+	rm -f *.o sirexp sirdemo_version.hpp

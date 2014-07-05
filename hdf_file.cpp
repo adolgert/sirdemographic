@@ -46,7 +46,8 @@ class HDFFile::impl {
   }
 
 
-  bool SaveTrajectory(int seed, int idx, const TrajectoryType& trajectory) const {
+  bool SaveTrajectory(const std::vector<Parameter>& params,
+      int seed, int idx, const TrajectoryType& trajectory) const {
     std::unique_lock<std::mutex> only_me(single_writer_);
     assert(open_);
     hsize_t dims[1];
@@ -64,17 +65,16 @@ class HDFFile::impl {
     H5Tinsert(trajectory_type, "t", HOFFSET(TrajectoryEntry, t),
         H5T_IEEE_F64LE);
     if (trajectory_type<0) {
-      BOOST_LOG_TRIVIAL(warning)<<"Could not make HD5 type "<<trajectory_type;
+      BOOST_LOG_TRIVIAL(error)<<"Could not make HD5 type "<<trajectory_type;
       herr_t space_status=H5Sclose(dataspace_id);
       return false;
     }
 
-    // When writing, ask library to translate from native type to disk
-    // storage type if necessary.
+    // When writing, ask library to translate from native type (H5T_NATIVE_LONG)
+    // to disk storage type (H5T_STD_I64LE) if necessary.
     hid_t write_trajectory_type=H5Tcreate(H5T_COMPOUND, sizeof(TrajectoryEntry));
     H5Tinsert(write_trajectory_type, "s", HOFFSET(TrajectoryEntry, s),
         H5T_NATIVE_LONG);
-    std::cout << "offset "<<HOFFSET(TrajectoryEntry, t)<<std::endl;
     H5Tinsert(write_trajectory_type, "i", HOFFSET(TrajectoryEntry, i),
         H5T_NATIVE_LONG);
     H5Tinsert(write_trajectory_type, "r", HOFFSET(TrajectoryEntry, r),
@@ -82,7 +82,7 @@ class HDFFile::impl {
     H5Tinsert(write_trajectory_type, "t", HOFFSET(TrajectoryEntry, t),
         H5T_NATIVE_DOUBLE);
     if (write_trajectory_type<0) {
-      BOOST_LOG_TRIVIAL(warning)<<"Could not make HD5 native type "
+      BOOST_LOG_TRIVIAL(error)<<"Could not make HD5 native type "
         <<write_trajectory_type;
       herr_t trajt_status=H5Tclose(trajectory_type);
       herr_t space_status=H5Sclose(dataspace_id);
@@ -94,7 +94,7 @@ class HDFFile::impl {
     hid_t dataset_id=H5Dcreate2(file_id_, dset_name.str().c_str(),
       write_trajectory_type, dataspace_id, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
     if (dataset_id<0) {
-      BOOST_LOG_TRIVIAL(warning)<<"Could not make HD5 dataset "<<dataset_id;
+      BOOST_LOG_TRIVIAL(error)<<"Could not make HD5 dataset "<<dataset_id;
       herr_t trajt_status=H5Tclose(trajectory_type);
       herr_t wtrajt_status=H5Tclose(write_trajectory_type);
       herr_t space_status=H5Sclose(dataspace_id);
@@ -105,13 +105,27 @@ class HDFFile::impl {
       H5S_ALL, H5S_ALL, H5P_DEFAULT, &trajectory[0]);
 
     if (write_status<0) {
-      BOOST_LOG_TRIVIAL(warning)<<"Could not write HD5 dataset "<<write_status;
+      BOOST_LOG_TRIVIAL(error)<<"Could not write HD5 dataset "<<write_status;
       herr_t trajt_status=H5Tclose(trajectory_type);
       herr_t wtrajt_status=H5Tclose(write_trajectory_type);
       herr_t space_status=H5Sclose(dataspace_id);
       herr_t close_status=H5Dclose(dataset_id);
       return false;
     }
+
+    // Now write dataset attributes.
+    hsize_t adims=1;
+    hid_t dspace_id=H5Screate_simple(1, &adims, NULL);
+    for (auto& p : params) {
+      hid_t attr0_id=H5Acreate2(dataset_id, p.name.c_str(), H5T_IEEE_F64LE,
+        dspace_id, H5P_DEFAULT, H5P_DEFAULT);
+      herr_t atstatus=H5Awrite(attr0_id, H5T_NATIVE_DOUBLE, &p.value);
+      if (atstatus<0) {
+        BOOST_LOG_TRIVIAL(error)<<"Could not write attribute "<<p.name;
+      }
+      H5Aclose(attr0_id);
+    }
+    H5Sclose(dspace_id);
 
     herr_t wtrajt_status=H5Tclose(write_trajectory_type);
     herr_t trajt_status=H5Tclose(trajectory_type);
@@ -125,8 +139,9 @@ HDFFile::HDFFile(const std::string& fname) : pimpl{ new impl{ fname }} {}
 HDFFile::~HDFFile() {}
 bool HDFFile::Open() { return pimpl->Open(); }
 bool HDFFile::Close() { return pimpl->Close(); }
-bool HDFFile::SaveTrajectory(int seed, int idx, const TrajectoryType& traj) const {
-  return pimpl->SaveTrajectory(seed, idx, traj);
+bool HDFFile::SaveTrajectory(const std::vector<Parameter>& params,
+  int seed, int idx, const TrajectoryType& traj) const {
+  return pimpl->SaveTrajectory(params, seed, idx, traj);
 }
 HDFFile::HDFFile(const HDFFile& o)
 : pimpl(o.pimpl) {}

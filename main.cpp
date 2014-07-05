@@ -3,11 +3,13 @@
 #include <mutex>
 #include <condition_variable>
 #include <future>
+#include <sstream>
 #include "boost/program_options.hpp"
 #include "smv.hpp"
 #include "sir_exp.hpp"
 #include "hdf_file.hpp"
 #include "seasonal.hpp"
+#include "sirdemo_version.hpp"
 
 
 
@@ -179,17 +181,24 @@ class Ensemble {
 int main(int argc, char *argv[])
 {
   namespace po=boost::program_options;
-  po::options_description desc("Well-mixed SIR");
+  po::options_description desc("Well-mixed SIR with demographics.");
   int64_t individual_cnt=100000;
   int run_cnt=1;
   size_t rand_seed=1;
   // Time is in years.
-  double beta0=400; // Rate of infection is over one per day.
-  double beta1=0.6;
-  double gamma=365/14.0; // Rate of recovery is a rate per year.
-  double deathrate=1/70.0;
-  double birthrate=deathrate;
+  std::vector<Parameter> parameters;
+  parameters.emplace_back(Parameter{SIRParam::Beta0, "beta0", 400,
+    "main infection rate"});
+  parameters.emplace_back(Parameter{SIRParam::Beta1, "beta1", 0.6,
+    "seasonality ratio"});
+  parameters.emplace_back(Parameter{SIRParam::Gamma, "gamma", 365/14.0,
+    "recovery rate"});
+  parameters.emplace_back(Parameter{SIRParam::Birth, "birth", 1/70.0,
+    "crude rate, before multiplying by number of individuals"});
+  parameters.emplace_back(Parameter{SIRParam::Mu, "mu", 1/70.0,
+    "death rate"});
   double end_time=30.0;
+  bool exacttraj=true;
   int thread_cnt=1;
   std::string log_level;
   std::string translation_file;
@@ -209,39 +218,39 @@ int main(int argc, char *argv[])
     ("seed,r",
       po::value<size_t>(&rand_seed)->default_value(rand_seed),
       "seed for random number generator")
-    ("beta0",
-      po::value<double>(&beta0)->default_value(beta0),
-      "parameter beta0 for infection of neighbor")
-    ("beta1",
-      po::value<double>(&beta1)->default_value(beta1),
-      "parameter beta1 for infection of neighbor")
-    ("gamma",
-      po::value<double>(&gamma)->default_value(gamma),
-      "parameter for recovery")
-    ("death",
-      po::value<double>(&deathrate)->default_value(deathrate),
-      "parameter for death")
-    ("birth",
-      po::value<double>(&birthrate)->default_value(birthrate),
-      "parameter for birth")
     ("endtime",
       po::value<double>(&end_time)->default_value(end_time),
       "parameter for birth")
+    ("exacttraj",
+      po::value<bool>(&exacttraj)->default_value(exacttraj),
+      "save trajectory only when it changes by a certain amount")
     ("loglevel", po::value<std::string>(&log_level)->default_value("info"),
       "Set the logging level to trace, debug, info, warning, error, or fatal.")
     ("translate",
       po::value<std::string>(&translation_file)->default_value(""),
       "write file relating place ids to internal ids")
+    ("info", "show provenance of program")
     ;
+
+  for (auto& p : parameters) {
+    desc.add_options()(p.name.c_str(),
+      po::value<double>(&p.value)->default_value(p.value),
+      p.description.c_str());
+  }
 
   po::variables_map vm;
   auto parsed_options=po::parse_command_line(argc, argv, desc);
   po::store(parsed_options, vm);
   po::notify(vm);
 
-  if (vm.count("help"))
-  {
+  if (vm.count("help")) {
     std::cout << desc << std::endl;
+    return 0;
+  }
+
+  if (vm.count("info")) {
+    std::cout << argv[0] << "\n";
+    std::cout << VERSION << "\n" << COMPILETIME << "\n\n" << CFG << "\n";
     return 0;
   }
 
@@ -254,18 +263,15 @@ int main(int argc, char *argv[])
 
   std::map<SIRParam,double> params;
 
-  params[SIRParam::Beta0]=beta0;
-  params[SIRParam::Beta1]=beta1;
-  params[SIRParam::Gamma]=gamma;
   // Birthrate is not frequency-dependent. It scales differently
   // which creates a fixed point in the phase plane.
-  params[SIRParam::Birth]=birthrate*individual_cnt;
-  params[SIRParam::Mu]=deathrate;
-  BOOST_LOG_TRIVIAL(info)<<"beta0 "<<params[SIRParam::Beta0];
-  BOOST_LOG_TRIVIAL(info)<<"beta1 "<<params[SIRParam::Beta1];
-  BOOST_LOG_TRIVIAL(info)<<"gamma "<<params[SIRParam::Gamma];
-  BOOST_LOG_TRIVIAL(info)<<"birth "<<params[SIRParam::Birth];
-  BOOST_LOG_TRIVIAL(info)<<"death "<<params[SIRParam::Mu];
+  std::find_if(parameters.begin(), parameters.end(), [](const Parameter& p) {
+    return p.kind==SIRParam::Birth;
+  })->value*=individual_cnt;
+
+  for (auto& showp : parameters) {
+    BOOST_LOG_TRIVIAL(info)<<showp.name<<" "<<showp.value;
+  }
 
   std::string output_file("sirexp.h5");
   HDFFile file(output_file);
@@ -275,9 +281,16 @@ int main(int argc, char *argv[])
   }
 
   auto runnable=[=](RandGen& rng, size_t single_seed, size_t idx)->void {
+    TrajectorySave exact_observer;
     PercentTrajectorySave observer;
-    SIR_run(end_time, individual_cnt, params, observer, rng);
-    file.SaveTrajectory(single_seed, idx, observer.trajectory_);
+    if (exacttraj) {
+      SIR_run(end_time, individual_cnt, parameters, exact_observer, rng);
+      file.SaveTrajectory(parameters, single_seed, idx,
+        exact_observer.trajectory_);
+    } else {
+      SIR_run(end_time, individual_cnt, parameters, observer, rng);
+      file.SaveTrajectory(parameters, single_seed, idx, observer.trajectory_);
+    }
   };
 
   Ensemble<decltype(runnable)> ensemble(runnable, thread_cnt, run_cnt,
