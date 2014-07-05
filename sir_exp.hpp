@@ -3,10 +3,11 @@
 #include <map>
 #include <random>
 #include "boost/random/mersenne_twister.hpp"
+#include "mt19937.hpp"
 
-using RandGen=std::mt19937;
+using RandGen=afidd::rng::mt19937;
 
-enum class SIRParam { Beta0, Beta1, Gamma, Birth, Mu };
+enum class SIRParam { Beta0, Beta1, Gamma, Birth, Mu, SeasonalPhase };
 struct Parameter {
   SIRParam kind;
   std::string name;
@@ -31,11 +32,12 @@ class TrajectoryObserver
 {
 public:
   virtual void Step(TrajectoryEntry sirt)=0;
+  virtual const std::vector<TrajectoryEntry>& Trajectory() const =0;
 };
 
 
 int64_t SIR_run(double time_limit, const std::vector<int64_t>& sir_cnt,
     const std::vector<Parameter>& parameters, TrajectoryObserver& observer,
-    RandGen& rng);
+    RandGen& rng, bool infect_exact);
 
 #endif

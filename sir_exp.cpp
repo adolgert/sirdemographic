@@ -17,6 +17,7 @@
 #include "boost/program_options.hpp"
 #include "smv.hpp"
 #include "sir_exp.hpp"
+#include "seasonal.hpp"
 
 namespace smv=afidd::smv;
 using namespace smv;
@@ -132,6 +133,35 @@ class Infect : public SIRTransition
 
 
 // Now make specific transitions.
+class InfectExact : public SIRTransition
+{
+  virtual std::pair<bool, std::unique_ptr<Dist>>
+  Enabled(const UserState& s, const Local& lm,
+    double te, double t0) const override {
+    // If these are just size_t, then the rate calculation overflows.
+    int64_t S=lm.template Length<0>(0);
+    int64_t I=lm.template Length<0>(1);
+    int64_t R=lm.template Length<0>(2);
+    if (S>0 && I>0) {
+      return {true, std::unique_ptr<SeasonalBeta<RandGen>>(
+        new SeasonalBeta<RandGen>(S*I*s.params.at(SIRParam::Beta0),
+          s.params.at(SIRParam::Beta1), s.params.at(SIRParam::SeasonalPhase),
+          te))};
+    } else {
+      return {false, std::unique_ptr<Dist>(nullptr)};
+    }
+  }
+
+  virtual void Fire(UserState& s, Local& lm, double t0,
+      RandGen& rng) const override {
+    BOOST_LOG_TRIVIAL(trace) << "Fire infection " << lm;
+    lm.template Move<0,0>(0, 3, 1);
+  }
+};
+
+
+
+// Now make specific transitions.
 class Recover : public SIRTransition
 {
   virtual std::pair<bool, std::unique_ptr<Dist>>
@@ -208,7 +238,7 @@ using SIRGSPN=
 /*! SIR infection on an all-to-all graph of uncolored tokens.
  */
 SIRGSPN
-BuildSystem(int64_t individual_cnt)
+BuildSystem(int64_t individual_cnt, bool exactbeta)
 {
   BuildGraph<SIRGSPN> bg;
   using Edge=BuildGraph<SIRGSPN>::PlaceEdge;
@@ -221,10 +251,18 @@ BuildSystem(int64_t individual_cnt)
 
   enum { infect, recover, birth, deaths, deathi, deathr };
 
-  bg.AddTransition({infect},
-    {Edge{{s}, -1}, Edge{{i}, -1}, Edge{{r}, -1}, Edge{{i}, 2}, Edge{{r}, 1}},
-    std::unique_ptr<SIRTransition>(new Infect())
-    );
+  if (exactbeta) {
+    BOOST_LOG_TRIVIAL(info)<<"Using exact seasonal infection";
+    bg.AddTransition({infect},
+      {Edge{{s}, -1}, Edge{{i}, -1}, Edge{{r}, -1}, Edge{{i}, 2}, Edge{{r}, 1}},
+      std::unique_ptr<SIRTransition>(new InfectExact())
+      );
+  } else {
+    bg.AddTransition({infect},
+      {Edge{{s}, -1}, Edge{{i}, -1}, Edge{{r}, -1}, Edge{{i}, 2}, Edge{{r}, 1}},
+      std::unique_ptr<SIRTransition>(new Infect())
+      );
+  }
 
   bg.AddTransition({recover},
     {Edge{{i}, -1}, Edge{{r}, 1}},
@@ -316,11 +354,11 @@ struct SIROutput
 
 int64_t SIR_run(double end_time, const std::vector<int64_t>& sir_cnt,
     const std::vector<Parameter>& parameters, TrajectoryObserver& observer,
-    RandGen& rng)
+    RandGen& rng, bool infect_exact)
 {
   int64_t individual_cnt=std::accumulate(sir_cnt.begin(), sir_cnt.end(),
     int64_t{0});
-  auto gspn=BuildSystem(individual_cnt);
+  auto gspn=BuildSystem(individual_cnt, infect_exact);
 
   // Marking of the net.
   static_assert(std::is_same<int64_t,SIRGSPN::PlaceKey>::value,

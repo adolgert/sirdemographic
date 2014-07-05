@@ -32,7 +32,7 @@ void seasonal_hazard_fdf(double t, void* params,
 
 
 template<typename RNG>
-class SeasonalBeta
+class SeasonalBeta : public afidd::smv::TransitionDistribution<RNG>
 {
   double b0_; // beta0
   double b1_; // beta1

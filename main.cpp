@@ -18,12 +18,13 @@
  */
 class TrajectorySave : public TrajectoryObserver
 {
- public:
   std::vector<TrajectoryEntry> trajectory_;
-
+ public:
   virtual void Step(TrajectoryEntry sirt) override {
     trajectory_.emplace_back(sirt);
   }
+  virtual const std::vector<TrajectoryEntry>& Trajectory() const {
+    return trajectory_; }
 };
 
 
@@ -37,8 +38,8 @@ class PercentTrajectorySave : public TrajectoryObserver
   double percent_{0.0001};
 
   TrajectoryEntry last_{0,0,0,0};
- public:
   std::vector<TrajectoryEntry> trajectory_;
+ public:
   PercentTrajectorySave() {}
 
   virtual void Step(TrajectoryEntry sirt) override {
@@ -57,6 +58,8 @@ class PercentTrajectorySave : public TrajectoryObserver
     }
     ++step_;
   }
+  virtual const std::vector<TrajectoryEntry>& Trajectory() const {
+    return trajectory_; }
 };
 
 
@@ -178,8 +181,7 @@ class Ensemble {
 };
 
 
-int main(int argc, char *argv[])
-{
+int main(int argc, char *argv[]) {
   namespace po=boost::program_options;
   po::options_description desc("Well-mixed SIR with demographics.");
   int64_t individual_cnt=100000;
@@ -194,6 +196,8 @@ int main(int argc, char *argv[])
     "main infection rate"});
   parameters.emplace_back(Parameter{SIRParam::Beta1, "beta1", 0.6,
     "seasonality ratio"});
+  parameters.emplace_back(Parameter{SIRParam::SeasonalPhase, "phase", 0,
+    "seasonality phase start between (0,1]"});
   parameters.emplace_back(Parameter{SIRParam::Gamma, "gamma", 365/14.0,
     "recovery rate"});
   parameters.emplace_back(Parameter{SIRParam::Birth, "birth", 1/70.0,
@@ -202,6 +206,7 @@ int main(int argc, char *argv[])
     "death rate"});
   double end_time=30.0;
   bool exacttraj=true;
+  bool exactinfect=false;
   int thread_cnt=1;
   std::string log_level;
   std::string translation_file;
@@ -220,19 +225,22 @@ int main(int argc, char *argv[])
       "size of the population")
     ("infected,i",
       po::value<int64_t>(&infected_cnt),
-      "size of the population")
+      "number of infected")
     ("recovered,r",
       po::value<int64_t>(&recovered_cnt),
-      "size of the population")
+      "number of recovered")
     ("seed",
       po::value<size_t>(&rand_seed)->default_value(rand_seed),
       "seed for random number generator")
     ("endtime",
       po::value<double>(&end_time)->default_value(end_time),
-      "parameter for birth")
+      "how many years to run")
     ("exacttraj",
       po::value<bool>(&exacttraj)->default_value(exacttraj),
       "save trajectory only when it changes by a certain amount")
+    ("exactinfect",
+      po::value<bool>(&exactinfect)->default_value(exactinfect),
+      "set true to use exact distribution for seasonal infection")
     ("loglevel", po::value<std::string>(&log_level)->default_value("info"),
       "Set the logging level to trace, debug, info, warning, error, or fatal.")
     ("translate",
@@ -320,16 +328,15 @@ int main(int argc, char *argv[])
   file.WriteExecutableData(VERSION, CFG, COMPILETIME);
 
   auto runnable=[=](RandGen& rng, size_t single_seed, size_t idx)->void {
-    TrajectorySave exact_observer;
-    PercentTrajectorySave observer;
+    std::shared_ptr<TrajectoryObserver> observer=0;
     if (exacttraj) {
-      SIR_run(end_time, sir_init, parameters, exact_observer, rng);
-      file.SaveTrajectory(parameters, single_seed, idx,
-        exact_observer.trajectory_);
+      observer=std::make_shared<TrajectorySave>();
     } else {
-      SIR_run(end_time, sir_init, parameters, observer, rng);
-      file.SaveTrajectory(parameters, single_seed, idx, observer.trajectory_);
+      observer=std::make_shared<PercentTrajectorySave>();
     }
+
+    SIR_run(end_time, sir_init, parameters, *observer, rng, exactinfect);
+    file.SaveTrajectory(parameters, single_seed, idx, observer->Trajectory());
   };
 
   Ensemble<decltype(runnable)> ensemble(runnable, thread_cnt, run_cnt,
