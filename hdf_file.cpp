@@ -153,18 +153,21 @@ class HDFFile::impl {
       return false;
     }
 
-    herr_t write_status=H5Dwrite(dataset_id, write_trajectory_type,
-      H5S_ALL, H5S_ALL, H5P_DEFAULT, &trajectory[0]);
+    if (trajectory.size()>0) {
+      herr_t write_status=H5Dwrite(dataset_id, write_trajectory_type,
+        H5S_ALL, H5S_ALL, H5P_DEFAULT, &trajectory[0]);
 
-    if (write_status<0) {
-      BOOST_LOG_TRIVIAL(error)<<"Could not write HD5 dataset "<<write_status;
-      herr_t trajt_status=H5Tclose(trajectory_type);
-      herr_t wtrajt_status=H5Tclose(write_trajectory_type);
-      herr_t space_status=H5Sclose(dataspace_id);
-      herr_t close_status=H5Dclose(dataset_id);
-      return false;
+      if (write_status<0) {
+        BOOST_LOG_TRIVIAL(error)<<"Could not write HD5 dataset "<<write_status;
+        herr_t trajt_status=H5Tclose(trajectory_type);
+        herr_t wtrajt_status=H5Tclose(write_trajectory_type);
+        herr_t space_status=H5Sclose(dataspace_id);
+        herr_t close_status=H5Dclose(dataset_id);
+        return false;
+      }
+    } else {
+      BOOST_LOG_TRIVIAL(warning)<<"There was no trajectory to write.";
     }
-
     // Now write dataset attributes.
     hsize_t adims=1;
     hid_t dspace_id=H5Screate_simple(1, &adims, NULL);

@@ -209,6 +209,7 @@ int main(int argc, char *argv[]) {
   bool exactinfect=false;
   int thread_cnt=1;
   std::string log_level;
+  std::string data_file("sirexp.h5");
   std::string translation_file;
   bool test=false;
 
@@ -241,6 +242,9 @@ int main(int argc, char *argv[]) {
     ("exactinfect",
       po::value<bool>(&exactinfect)->default_value(exactinfect),
       "set true to use exact distribution for seasonal infection")
+    ("datafile",
+      po::value<std::string>(&data_file)->default_value(data_file),
+      "Write to this data file.")
     ("loglevel", po::value<std::string>(&log_level)->default_value("info"),
       "Set the logging level to trace, debug, info, warning, error, or fatal.")
     ("translate",
@@ -319,10 +323,9 @@ int main(int argc, char *argv[]) {
     BOOST_LOG_TRIVIAL(info)<<showp.name<<" "<<showp.value;
   }
 
-  std::string output_file("sirexp.h5");
-  HDFFile file(output_file);
+  HDFFile file(data_file);
   if (!file.Open()) {
-    BOOST_LOG_TRIVIAL(error)<<"could not open output file: "<<output_file;
+    BOOST_LOG_TRIVIAL(error)<<"could not open output file: "<<data_file;
     return -1;
   }
   file.WriteExecutableData(VERSION, CFG, COMPILETIME, sir_init);
