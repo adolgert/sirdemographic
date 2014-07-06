@@ -42,10 +42,10 @@ scaling invariance, which you can see by adding the equations,
 \end{equation}
 At long times and for fixed $\beta$,
 \begin{eqnarray}
-  N & = & B/\mu \\
+  N & = & B/\mu \label{eqn::longtime0}\\
   S & = & \frac{(\mu+\gamma)B}{\beta \mu} \\
   I & = & \frac{(\beta-\mu-\gamma)B}{\beta(\mu+\gamma)} \\
-  R & = & \gamma I/\mu
+  R & = & \gamma I/\mu\label{eqn:longtime}
 \end{eqnarray}
 The model seems well-behaved. We are interested in adding a seasonal
 dependency to this model, so $\beta=\beta_0(1+\beta_1 \cos(2\pi (t-t_i))).$
@@ -56,10 +56,14 @@ B & 1/70 per year \\
 $\beta$ & 400 per year \\
 $\mu$ & 1/70 per year \\
 $\gamma$ & 365/14 per year.
-\end{tabular}
-Note that $N=1$ with the choice of $B/\mu$.
+\end{tabular} \\
+Note that $N=1$ with the choice of $B/\mu$. Given these values, the
+Eqs.~\ref{eqn::longtime0}--\ref{eqn:longtime} predict
+$S=0.07$, $I=0.0005$, $R=.93$, which looks like what is in the graph
+called ``$R(0)=15.33$.''
 
 \section{Stochastic Model}
+\subsection{Model Definition}
 For background on stochastic \sir, see Allen's chapter\cite{Allen:2008ma}.
 Every transition in the stochastic model is exponential, which makes for
 a simple system. There are three places, $S$, $I$, and $R$, with a transition
@@ -84,6 +88,8 @@ Working from the figure, we list our transitions. \\
   \hline
 \end{tabular}
 
+
+\subsection{Distribution for Seasonal Hazard Rate}
 The only complication is that the hazard rate will be seasonal,
 \begin{equation}
   \beta(t)=\beta_0(1+\beta_1 \cos(2\pi (t-t_i))),
@@ -124,6 +130,23 @@ have to solve
 % st co ci - ct co si - so co ci + co co si
 
 % add 
+
+\section{Running the Model}
+Using the initial values from the Eq.~\ref{eqn:longtime}, the graph
+in Fig.~\ref{fig:longbehavior} looks like I have something amiss.
+\begin{figure}
+\centerline{\includegraphics[scale=0.7]{longbehavior}}
+\caption{Initial values from \textsc{ode} aren't the same as the long-time
+equilibrium of this stochastic model of 100,000 individuals.\label{fig:longbehavior}}
+\end{figure}
+
+\begin{figure}
+\centerline{\includegraphics[scale=0.6]{longexact}}
+\caption{Another trajectory, this time using the exact distribution
+for infection, accounting for time dependence. It's pretty much
+the same behavior.\label{fig:longexact}}
+\end{figure}
+
 
 \bibliography{freqsir}
 \bibliographystyle{plain}

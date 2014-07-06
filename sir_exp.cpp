@@ -113,10 +113,10 @@ class Infect : public SIRTransition
         (1.0+s.params.at(SIRParam::Beta1)*
           std::cos(2*boost::math::constants::pi<double>()*t0))/
           (S+I+R);
-      BOOST_LOG_TRIVIAL(trace)<<"infection rate "<<rate<<" beta0 "<<
+      SMVLOG(BOOST_LOG_TRIVIAL(trace)<<"infection rate "<<rate<<" beta0 "<<
         s.params.at(SIRParam::Beta0) << " beta1 " <<
         s.params.at(SIRParam::Beta1) << " t0 " << t0 << " N "<<(S+I+R)
-        << " S "<<S <<" I " << I;
+        << " S "<<S <<" I " << I);
       return {true, std::unique_ptr<ExpDist>(new ExpDist(rate, te))};
     } else {
       return {false, std::unique_ptr<Dist>(nullptr)};
@@ -125,7 +125,7 @@ class Infect : public SIRTransition
 
   virtual void Fire(UserState& s, Local& lm, double t0,
       RandGen& rng) const override {
-    BOOST_LOG_TRIVIAL(trace) << "Fire infection " << lm;
+    SMVLOG(BOOST_LOG_TRIVIAL(trace) << "Fire infection " << lm);
     lm.template Move<0,0>(0, 3, 1);
   }
 };
@@ -144,7 +144,7 @@ class InfectExact : public SIRTransition
     int64_t R=lm.template Length<0>(2);
     if (S>0 && I>0) {
       return {true, std::unique_ptr<SeasonalBeta<RandGen>>(
-        new SeasonalBeta<RandGen>(S*I*s.params.at(SIRParam::Beta0),
+        new SeasonalBeta<RandGen>(S*I*s.params.at(SIRParam::Beta0)/(S+I+R),
           s.params.at(SIRParam::Beta1), s.params.at(SIRParam::SeasonalPhase),
           te))};
     } else {
@@ -154,7 +154,7 @@ class InfectExact : public SIRTransition
 
   virtual void Fire(UserState& s, Local& lm, double t0,
       RandGen& rng) const override {
-    BOOST_LOG_TRIVIAL(trace) << "Fire infection " << lm;
+    SMVLOG(BOOST_LOG_TRIVIAL(trace) << "Fire infection " << lm);
     lm.template Move<0,0>(0, 3, 1);
   }
 };
@@ -170,7 +170,7 @@ class Recover : public SIRTransition
     auto I=lm.template Length<0>(0);
     if (I>0) {
       double rate=I*s.params.at(SIRParam::Gamma);
-      BOOST_LOG_TRIVIAL(trace)<<"recover rate "<< rate;
+      SMVLOG(BOOST_LOG_TRIVIAL(trace)<<"recover rate "<< rate);
       return {true, std::unique_ptr<ExpDist>(
         new ExpDist(rate, te))};
     } else {
@@ -180,7 +180,7 @@ class Recover : public SIRTransition
 
   virtual void Fire(UserState& s, Local& lm, double t0,
       RandGen& rng) const override {
-    BOOST_LOG_TRIVIAL(trace) << "Fire infection " << lm;
+    SMVLOG(BOOST_LOG_TRIVIAL(trace) << "Fire infection " << lm);
     lm.template Move<0, 0>(0, 1, 1);
   }
 };
@@ -199,7 +199,7 @@ class Birth : public SIRTransition
 
   virtual void Fire(UserState& s, Local& lm, double t0,
       RandGen& rng) const override {
-    BOOST_LOG_TRIVIAL(trace) << "Fire infection " << lm;
+    SMVLOG(BOOST_LOG_TRIVIAL(trace) << "Fire infection " << lm);
     lm.template Add<0>(1, IndividualToken{});
   }
 };
@@ -223,7 +223,7 @@ class Death : public SIRTransition
 
   virtual void Fire(UserState& s, Local& lm, double t0,
       RandGen& rng) const override {
-    BOOST_LOG_TRIVIAL(trace) << "Fire infection " << lm;
+    SMVLOG(BOOST_LOG_TRIVIAL(trace) << "Fire infection " << lm);
     lm.template Remove<0>(0, 1, rng);
   }
 };
@@ -258,6 +258,7 @@ BuildSystem(int64_t individual_cnt, bool exactbeta)
       std::unique_ptr<SIRTransition>(new InfectExact())
       );
   } else {
+    BOOST_LOG_TRIVIAL(info)<<"Using piecewise seasonal infection";
     bg.AddTransition({infect},
       {Edge{{s}, -1}, Edge{{i}, -1}, Edge{{r}, -1}, Edge{{i}, 2}, Edge{{r}, 1}},
       std::unique_ptr<SIRTransition>(new Infect())
@@ -327,11 +328,37 @@ struct SIROutput
           assert(S+I+R==sir_[0]+sir_[1]+sir_[2]);
           assert(sir_[0]-S==1);
           assert(I-sir_[1]==1);
+          assert(R==sir_[2]);
           break;
         case 1: // recover
           assert(S+I+R==sir_[0]+sir_[1]+sir_[2]);
           assert(sir_[1]-I==1);
           assert(R-sir_[2]==1);
+          assert(S==sir_[0]);
+          break;
+        case 2: // birth
+          assert(I==sir_[1]);
+          assert(R==sir_[2]);
+          assert(S==sir_[0]+1);
+          break;
+        case 3: // death s
+          assert(I==sir_[1]);
+          assert(R==sir_[2]);
+          assert(S==sir_[0]-1);
+          break;
+        case 4: // death i
+          assert(S==sir_[0]);
+          assert(R==sir_[2]);
+          assert(I==sir_[1]-1);
+          break;
+        case 5: // death r
+          assert(S==sir_[0]);
+          assert(I==sir_[1]);
+          assert(R==sir_[2]-1);
+          break;
+        default:
+          assert(transitions_[state.last_transition]<6);
+          assert(transitions_[state.last_transition]>=0);
           break;
       }
     }

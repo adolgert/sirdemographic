@@ -55,12 +55,24 @@ def showproginfo(f):
         print(attrs[x][0].decode())
 
 
+def eeid_long_behavior():
+    B=1/70
+    beta=400
+    mu=1/70
+    gamma=365/14
+    S=(mu+gamma)*B/(beta*mu)
+    I=(beta-mu-gamma)*B/(beta*(mu+gamma))
+    R=gamma*I/mu
+    print("EEID long time is\n\tS\t{0}\n\tI\t{1}\n\tR\t{2}".format(S, I, R))
+
+
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     parser=DefaultArgumentParser(description="Quick look at an H5 file")
     parser.add_function("info", "Find what program made the file.")
     parser.add_function("trajectory", "Plot the trajectory")
     parser.add_function("dir", "List datasets")
+    parser.add_function("eeid", "verify eeid example values")
     parser.add_argument("--file", dest="file", action="store",
         default="sirexp.h5", help="data file to read")
 
@@ -75,7 +87,9 @@ if __name__ == "__main__":
         foreach_trajectory(f, plot_single)
     if args.dir:
         foreach_trajectory(f, showds)
+    if args.eeid:
+        eeid_long_behavior()
     #foreach_trajectory("sirexp.h5", plot_single)
     if not parser.any_function():
         parser.print_help()
-        
+

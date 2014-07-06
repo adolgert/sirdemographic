@@ -2,6 +2,7 @@
 #include <cassert>
 #include <mutex>
 #include "hdf_file.hpp"
+#include "boost/program_options.hpp"
 #include "hdf5.h"
 #include "smv.hpp"
 
@@ -34,6 +35,7 @@ class HDFFile::impl {
   bool WriteExecutableData(const std::string& version, const std::string& cfg,
     const std::string& compile_time, const std::vector<int64_t>& siri) const {
     std::unique_lock<std::mutex> only_me(single_writer_);
+    //boost::program_options::basic_parsed_options<wchar_t> options;
 
     hsize_t adims=1;
     hid_t dspace_id=H5Screate_simple(1, &adims, NULL);
@@ -74,6 +76,17 @@ class HDFFile::impl {
       }
       H5Aclose(attr1_id);
     }
+
+    /* We save the command-line options used to call the program.
+    for (auto& opt : options) {
+      std::cout << opt.string_key;
+      std::cout << "\t";
+      for (auto& v : opt.value) {
+        std::cout << v <<" ";
+      }
+      std::cout <<std::endl;
+    }
+    */
 
     H5Sclose(dspace_id);
     return true;

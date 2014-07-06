@@ -293,6 +293,12 @@ int main(int argc, char *argv[]) {
   // which creates a fixed point in the phase plane.
   getp(SIRParam::Birth)*=individual_cnt;
 
+  if (std::abs(getp(SIRParam::Beta1))>1) {
+    std::cout << "beta1 should be fractional, between 0 and 1: beta1=" <<
+      getp(SIRParam::Beta1) << std::endl;
+    return -4;
+  }
+
   if (vm.count("infected") and !vm.count("recovered") ||
       !vm.count("infected") and vm.count("recovered")) {
     std::cout << "You have so set the total and I and R, not just some of them."
