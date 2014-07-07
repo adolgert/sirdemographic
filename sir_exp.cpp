@@ -111,7 +111,8 @@ class Infect : public SIRTransition
     if (S>0 && I>0) {
       double rate=S*I*s.params.at(SIRParam::Beta0)*
         (1.0+s.params.at(SIRParam::Beta1)*
-          std::cos(2*boost::math::constants::pi<double>()*t0))/
+          std::cos(2*boost::math::constants::pi<double>()*(
+            t0-s.params.at(SIRParam::SeasonalPhase))))/
           (S+I+R);
       SMVLOG(BOOST_LOG_TRIVIAL(trace)<<"infection rate "<<rate<<" beta0 "<<
         s.params.at(SIRParam::Beta0) << " beta1 " <<
