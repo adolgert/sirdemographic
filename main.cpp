@@ -1,14 +1,11 @@
 #include <string>
-#include <thread>
-#include <mutex>
-#include <condition_variable>
-#include <future>
 #include <sstream>
 #include "boost/program_options.hpp"
 #include "smv.hpp"
 #include "sir_exp.hpp"
 #include "hdf_file.hpp"
 #include "seasonal.hpp"
+#include "ensemble.hpp"
 #include "sirdemo_version.hpp"
 
 
@@ -63,122 +60,6 @@ class PercentTrajectorySave : public TrajectoryObserver
 };
 
 
-/*! Runs a function many times over a set of random number generators.
- *  Runnable is a function that takes a random number generator and seed
- *  as argument.
- */
-template<typename Runnable>
-class Ensemble {
-  Runnable runner_;
-  std::vector<RandGen> rng_;
-  int thread_cnt_;
-  int run_cnt_;
-  size_t rand_seed_;
-  // States are 0 available 1 running 2 please join this thread.
-  std::vector<std::atomic<int>> ready_flag_;
-  std::vector<std::thread> thread_;
-  std::mutex ensemble_m_;
-  std::condition_variable thread_done_;
- public:
-  Ensemble(Runnable runner, int thread_cnt, int run_cnt, size_t rand_seed)
-  : runner_(runner), thread_cnt_(thread_cnt), run_cnt_(run_cnt),
-  rand_seed_(rand_seed), rng_(thread_cnt), thread_(thread_cnt),
-  ready_flag_(thread_cnt) {
-    BOOST_LOG_TRIVIAL(info)<<"threads "<<thread_cnt<<" runs "<<run_cnt;
-    for (auto& rnginit : rng_) {
-      rnginit.seed(rand_seed);
-      ++rand_seed;
-    }
-    for (auto& ready_init : ready_flag_) {
-      ready_init=0;
-    }
-    BOOST_LOG_TRIVIAL(info)<<"Next available rand seed: "<<rand_seed;
-  }
-
-  void Run() {
-    // Three phases: spin up, work, spin down.
-    int up_thread=thread_cnt_;
-    while (run_cnt_>0 && up_thread>0) {
-      --up_thread;
-      int seed=rand_seed_+up_thread;
-      int run=run_cnt_;
-      int tidx=up_thread;
-      auto run_notify=[&,seed, run, tidx]()->void {
-        SMVLOG(BOOST_LOG_TRIVIAL(debug)<<"Thread start "<<run<<" "<<tidx);
-        runner_(rng_[tidx], seed, run);
-        SMVLOG(BOOST_LOG_TRIVIAL(debug)<<"Thread finish "<<run
-          <<" tidx "<<tidx);
-        std::unique_lock<std::mutex> register_done(ensemble_m_);
-        ready_flag_[tidx]=2;
-        thread_done_.notify_one();
-      };
-      SMVLOG(BOOST_LOG_TRIVIAL(debug)<<"Thread run "<<run_cnt_
-        <<" up_thread "<<up_thread);
-      ready_flag_[up_thread]=1;
-      thread_[up_thread]=std::thread(run_notify);
-      --run_cnt_;
-    }
-
-    std::unique_lock<std::mutex> checking_available(ensemble_m_);
-    while (run_cnt_>0) {
-      SMVLOG(BOOST_LOG_TRIVIAL(debug)<<"Thread wait m "<<run_cnt_);
-      thread_done_.wait(checking_available);
-      int available=ThreadFinished();
-      SMVLOG(BOOST_LOG_TRIVIAL(debug)<<"Thread avail "<<available);
-      if (available>=0) {
-        thread_[available].join();
-        SMVLOG(BOOST_LOG_TRIVIAL(debug)<<"Thread joined "<<available);
-        int seed=rand_seed_+available;
-        int run=run_cnt_;
-        auto run_notify=[&, seed, run, available]()->void {
-          SMVLOG(BOOST_LOG_TRIVIAL(debug)<<"Thread start m "<<run
-            <<" "<<available;);
-          runner_(rng_[available], seed, run);
-          SMVLOG(BOOST_LOG_TRIVIAL(debug)<<"Thread finish m "<<run<<
-            " avail "<<available);
-          std::unique_lock<std::mutex> register_done(ensemble_m_);
-          ready_flag_[available]=2;
-          thread_done_.notify_one();
-        };
-        SMVLOG(BOOST_LOG_TRIVIAL(debug)<<"Thread run m "<<run_cnt_
-          << " avail "<<available);
-        ready_flag_[available]=1;
-        thread_[available]=std::thread(run_notify);
-        --run_cnt_;
-      }
-    }
-
-    while (ThreadRunning()) {
-      SMVLOG(BOOST_LOG_TRIVIAL(debug)<<"Thread wait d "<<run_cnt_);
-      thread_done_.wait(checking_available);
-      int available=ThreadFinished();
-      if (available>=0) {
-        thread_[available].join();
-        ready_flag_[available]=0;
-      }
-    }
-  }
-
- private:
-  int ThreadFinished() {
-    int available=-1;
-    for (int j=0; j<thread_cnt_; ++j) {
-      if (ready_flag_[j]==2) {
-        available=j;
-        break;
-      }
-    }
-    return available;
-  }
-
-  bool ThreadRunning() {
-    for (auto& check_ready : ready_flag_) {
-      if (check_ready!=0) return true;
-    }
-    SMVLOG(BOOST_LOG_TRIVIAL(debug)<<"no threads running");
-    return false;
-  }
-};
 
 
 int main(int argc, char *argv[]) {
@@ -282,20 +163,18 @@ int main(int argc, char *argv[]) {
     std::cout << "Seasonal tolerance " << tolerance << std::endl;
   }
 
-  std::map<SIRParam,double> params;
-
-  auto getp=[&](SIRParam fp)->double& {
-    return std::find_if(parameters.begin(), parameters.end(),
-      [fp](const Parameter& p) { return p.kind==fp; })->value;
-  };
+  std::map<SIRParam,double*> params;
+  for (auto& pm : parameters) {
+    params[pm.kind]=&pm.value;
+  }
 
   // Birthrate is not frequency-dependent. It scales differently
   // which creates a fixed point in the phase plane.
-  getp(SIRParam::Birth)*=individual_cnt;
+  (*params[SIRParam::Birth])*=individual_cnt;
 
-  if (std::abs(getp(SIRParam::Beta1))>1) {
+  if (std::abs(*params[SIRParam::Beta1])>1) {
     std::cout << "beta1 should be fractional, between 0 and 1: beta1=" <<
-      getp(SIRParam::Beta1) << std::endl;
+      *params[SIRParam::Beta1] << std::endl;
     return -4;
   }
 
@@ -305,10 +184,10 @@ int main(int argc, char *argv[]) {
       << std::endl;
     return -3;
   } else if (!vm.count("infected") && !vm.count("recovered")) {
-    double b=getp(SIRParam::Beta0);
-    double m=getp(SIRParam::Mu);
-    double g=getp(SIRParam::Gamma);
-    double B=getp(SIRParam::Birth);
+    double b=*params[SIRParam::Beta0];
+    double m=*params[SIRParam::Mu];
+    double g=*params[SIRParam::Gamma];
+    double B=*params[SIRParam::Birth];
     // Long-time averages for fixed forcing for ODE model.
     int64_t susceptible_start=std::floor((m+g)*individual_cnt/b);
     infected_cnt=std::floor(individual_cnt*(b-m-g)*m/(b*(m+g)));

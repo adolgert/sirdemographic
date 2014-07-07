@@ -361,6 +361,8 @@ struct SIROutput
           assert(transitions_[state.last_transition]>=0);
           break;
       }
+    } else {
+      ; // This is the first step.
     }
 
     ++step_cnt;
@@ -440,6 +442,11 @@ int64_t SIR_run(double end_time, const std::vector<int64_t>& sir_cnt,
     }
     last_time=new_time;
     output_function(state);
+  }
+  if (running) {
+    BOOST_LOG_TRIVIAL(info)<<"Reached end time "<<state.CurrentTime();
+  } else {
+    BOOST_LOG_TRIVIAL(info)<<"No transitions left to fire at time "<<last_time;
   }
   output_function.final(state);
   return 0;
