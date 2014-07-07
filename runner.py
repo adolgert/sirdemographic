@@ -17,7 +17,7 @@ def timing_run(total_individual, run_cnt):
     logger.debug(to_run)
     ret=subprocess.Popen(to_run)
     result=ret.communicate()[0] # join the process
-    return float(open('zz.txt').read())
+    return float(open('zz.txt').read())/run_cnt
 
 
 def matrix_run(res, run_cnt):
@@ -50,4 +50,7 @@ if __name__=='__main__':
     if args.exp:
         matrix_run(args.resolution, args.runcnt)
     if args.time:
-        print(timing_run(100000, 10))
+        for individual_cnt in [5000, 10000, 20000, 50000, 100000, 200000,
+                500000, 1000000]:
+            elapsed=timing_run(individual_cnt, args.runcnt)
+            print("{0}\t{1}".format(individual_cnt, elapsed))

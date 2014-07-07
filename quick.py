@@ -27,8 +27,12 @@ def plot_single(traj_dset):
     print("A value was {0} less than a previous value".format(timax))
 
     fix, ax=plt.subplots()
-    ax.plot(t, s, 'k')
-    ax.plot(t, i, 'r')
+    ax.plot(t, s, 'k', label='S')
+    ax.plot(t, i, 'r', label='I')
+    ax.plot(t, r, 'g', label='R')
+    plt.xlabel('time [years]')
+    plt.ylabel('individuals')
+    legend=ax.legend(loc='upper center', shadow=False)
     plt.show()
 
 

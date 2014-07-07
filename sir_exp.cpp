@@ -120,6 +120,7 @@ class Infect : public SIRTransition
         << " S "<<S <<" I " << I);
       return {true, std::unique_ptr<ExpDist>(new ExpDist(rate, te))};
     } else {
+      SMVLOG(BOOST_LOG_TRIVIAL(trace)<<"infection disable");
       return {false, std::unique_ptr<Dist>(nullptr)};
     }
   }
@@ -127,6 +128,7 @@ class Infect : public SIRTransition
   virtual void Fire(UserState& s, Local& lm, double t0,
       RandGen& rng) const override {
     SMVLOG(BOOST_LOG_TRIVIAL(trace) << "Fire infection " << lm);
+    // s0 i1 r2 i3 r4
     lm.template Move<0,0>(0, 3, 1);
   }
 };
@@ -168,13 +170,14 @@ class Recover : public SIRTransition
   virtual std::pair<bool, std::unique_ptr<Dist>>
   Enabled(const UserState& s, const Local& lm,
     double te, double t0) const override {
-    auto I=lm.template Length<0>(0);
+    int64_t I=lm.template Length<0>(0);
     if (I>0) {
       double rate=I*s.params.at(SIRParam::Gamma);
       SMVLOG(BOOST_LOG_TRIVIAL(trace)<<"recover rate "<< rate);
       return {true, std::unique_ptr<ExpDist>(
         new ExpDist(rate, te))};
     } else {
+      SMVLOG(BOOST_LOG_TRIVIAL(trace)<<"recover disable");
       return {false, std::unique_ptr<Dist>(nullptr)};
     }
   }
@@ -194,8 +197,12 @@ class Birth : public SIRTransition
   virtual std::pair<bool, std::unique_ptr<Dist>>
   Enabled(const UserState& s, const Local& lm,
     double te, double t0) const override {
-    return {true, std::unique_ptr<ExpDist>(
-      new ExpDist(s.params.at(SIRParam::Birth), te))};
+    if (s.params.at(SIRParam::Birth)>0) {
+      return {true, std::unique_ptr<ExpDist>(
+        new ExpDist(s.params.at(SIRParam::Birth), te))};
+    } else {
+      return {false, std::unique_ptr<Dist>(nullptr)};
+    }
   }
 
   virtual void Fire(UserState& s, Local& lm, double t0,
@@ -213,8 +220,8 @@ class Death : public SIRTransition
   virtual std::pair<bool, std::unique_ptr<Dist>>
   Enabled(const UserState& s, const Local& lm,
     double te, double t0) const override {
-    auto SIR=lm.template Length<0>(0);
-    if (SIR>0) {
+    int64_t SIR=lm.template Length<0>(0);
+    if (SIR>0 && s.params.at(SIRParam::Mu)>0) {
       return {true, std::unique_ptr<ExpDist>(
         new ExpDist(SIR*s.params.at(SIRParam::Mu), te))};
     } else {
@@ -313,15 +320,23 @@ struct SIROutput
     const std::map<int64_t,int>& sir_transitions,
     TrajectoryObserver& observer)
   : places_{sir_places}, max_time_(max_time), max_count_(max_count),
-    observer_(observer), transitions_(sir_transitions)
-  {};
+    observer_(observer), transitions_(sir_transitions) {
+    for (auto& t : transitions_) {
+      BOOST_LOG_TRIVIAL(debug)<<"gspn transition "<<t.first<<"="<<t.second;
+    }
+    for (auto& p: places_) {
+      BOOST_LOG_TRIVIAL(debug)<<"gspn place "<<p;
+    }
+  };
 
   int64_t step_cnt{0};
 
   void operator()(const SIRState& state) {
-    auto S=Length<0>(state.marking, places_[0]);
-    auto I=Length<0>(state.marking, places_[1]);
-    auto R=Length<0>(state.marking, places_[2]);
+    int64_t S=Length<0>(state.marking, places_[0]);
+    int64_t I=Length<0>(state.marking, places_[1]);
+    int64_t R=Length<0>(state.marking, places_[2]);
+    SMVLOG(BOOST_LOG_TRIVIAL(trace)<<"last transition "<<state.last_transition);
+    SMVLOG(BOOST_LOG_TRIVIAL(trace)<<"S="<<S<<" I="<<I<<" R="<<R);
 
     if (step_cnt>0) {
       switch (transitions_[state.last_transition]) {
@@ -367,8 +382,6 @@ struct SIROutput
     }
 
     ++step_cnt;
-    //std::cout << "(" << S << "," << I << "," << R << ") "
-    //  << state.CurrentTime() << std::endl;
     observer_.Step({S, I, R, state.CurrentTime()});
     sir_[0]=S;
     sir_[1]=I;
@@ -436,13 +449,15 @@ int64_t SIR_run(double end_time, const std::vector<int64_t>& sir_cnt,
   double last_time=state.CurrentTime();
   while (running && state.CurrentTime()<end_time) {
     running=dynamics(state);
-    double new_time=state.CurrentTime();
-    if (new_time-last_time<-1e-4) {
-      BOOST_LOG_TRIVIAL(warning) << "last time "<<last_time <<" "
-        << " new_time "<<new_time;
+    if (running) {
+      double new_time=state.CurrentTime();
+      if (new_time-last_time<-1e-12) {
+        BOOST_LOG_TRIVIAL(warning) << "last time "<<last_time <<" "
+          << " new_time "<<new_time;
+      }
+      last_time=new_time;
+      output_function(state);
     }
-    last_time=new_time;
-    output_function(state);
   }
   if (running) {
     BOOST_LOG_TRIVIAL(info)<<"Reached end time "<<state.CurrentTime();
