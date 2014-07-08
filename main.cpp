@@ -91,6 +91,7 @@ int main(int argc, char *argv[]) {
   int thread_cnt=1;
   std::string log_level;
   std::string data_file("sirexp.h5");
+  bool save_file=false;
   std::string translation_file;
   bool test=false;
 
@@ -126,6 +127,9 @@ int main(int argc, char *argv[]) {
     ("datafile",
       po::value<std::string>(&data_file)->default_value(data_file),
       "Write to this data file.")
+    ("save",
+      po::value<bool>(&save_file)->default_value(save_file),
+      "Add data to file instead of erasing it with new data.")
     ("loglevel", po::value<std::string>(&log_level)->default_value("info"),
       "Set the logging level to trace, debug, info, warning, error, or fatal.")
     ("translate",
@@ -150,9 +154,14 @@ int main(int argc, char *argv[]) {
     return 0;
   }
 
+  std::map<std::string,std::string> compile_info {
+    {"VERSION", VERSION}, {"COMPILETIME", COMPILETIME},
+    {"CONFIG", CFG}
+  };
   if (vm.count("info")) {
-    std::cout << argv[0] << "\n";
-    std::cout << VERSION << "\n" << COMPILETIME << "\n\n" << CFG << "\n";
+    for (auto& kv : compile_info) {
+      std::cout << kv.second << "\n\n";
+    }
     return 0;
   }
 
@@ -209,11 +218,11 @@ int main(int argc, char *argv[]) {
   }
 
   HDFFile file(data_file);
-  if (!file.Open()) {
+  if (!file.Open(!save_file)) {
     BOOST_LOG_TRIVIAL(error)<<"could not open output file: "<<data_file;
     return -1;
   }
-  file.WriteExecutableData(VERSION, CFG, COMPILETIME, sir_init);
+  file.WriteExecutableData(compile_info, parsed_options, sir_init);
 
   auto runnable=[=](RandGen& rng, size_t single_seed, size_t idx)->void {
     std::shared_ptr<TrajectoryObserver> observer=0;

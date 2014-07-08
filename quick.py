@@ -56,7 +56,12 @@ def showds(ds):
 def showproginfo(f):
     attrs=f['/trajectory'].attrs
     for x in attrs:
-        print(attrs[x][0].decode())
+        if (attrs[x].dtype.type is np.bytes_):
+            print("{0}: ".format(x))
+            for v in attrs[x]:
+                print(v.decode())
+        else:
+            print("{0}: {1}".format(x, attrs[x]))
 
 
 def eeid_long_behavior():

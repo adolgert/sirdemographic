@@ -1,11 +1,33 @@
 #include <sstream>
 #include <cassert>
 #include <mutex>
+#include <exception>
+#include <fstream>
 #include "hdf_file.hpp"
-#include "boost/program_options.hpp"
 #include "hdf5.h"
 #include "smv.hpp"
 
+
+herr_t IterateTrajectories(hid_t group_id, const char* group_name,
+  const H5L_info_t* info, void* op_data) {
+  int* chosen_idx=static_cast<int*>(op_data);
+
+  std::string sname{group_name};
+  if (sname.substr(0,10)==std::string("trajectory")) {
+    if (sname.size()>10) {
+      std::istringstream convert{sname.substr(10)};
+      int val{0};
+      try {
+        convert>>val;
+        *chosen_idx=std::max(*chosen_idx, val+1);
+      } catch (std::exception& e) {
+        BOOST_LOG_TRIVIAL(warning)<<"Could not convert "<<sname;
+      }
+    } else {
+      *chosen_idx=std::max(*chosen_idx, 1);
+    }
+  }
+}
 
 
 
@@ -19,76 +41,134 @@ class HDFFile::impl {
   impl(const std::string& filename) : filename_(filename), open_(false),
     file_id_(0), trajectory_group_(0) {}
   ~impl() { this->Close(); }
-  bool Open() {
-    file_id_=H5Fcreate(filename_.c_str(), H5F_ACC_TRUNC, H5P_DEFAULT,
-        H5P_DEFAULT);
+  bool Open(bool truncate=true) {
+    if (truncate) {
+      file_id_=H5Fcreate(filename_.c_str(), H5F_ACC_TRUNC, H5P_DEFAULT,
+          H5P_DEFAULT);
+    } else {
+      std::ifstream file_exists(filename_.c_str());
+      bool exists=file_exists.good();
+      file_exists.close();
+
+      if (exists) {
+        file_id_=H5Fopen(filename_.c_str(), H5F_ACC_RDWR, H5P_DEFAULT);
+        BOOST_LOG_TRIVIAL(debug)<<"File exists: "<<filename_;
+      } else {
+        BOOST_LOG_TRIVIAL(debug)<<"Creating file: "<<filename_;
+        file_id_=H5Fcreate(filename_.c_str(), H5F_ACC_TRUNC, H5P_DEFAULT,
+            H5P_DEFAULT);
+      }
+    }
     if (file_id_<0) return false;
 
     open_=true;
 
-    trajectory_group_=H5Gcreate(file_id_, "/trajectory", H5P_DEFAULT,
+    int chosen_idx=0;
+
+    if (!truncate) {
+      // Is there already a trajectory in this file?
+      herr_t find_status=H5Literate_by_name(file_id_, "/", H5_INDEX_NAME,
+        H5_ITER_INC, NULL, IterateTrajectories, &chosen_idx, H5P_DEFAULT);
+      BOOST_LOG_TRIVIAL(debug)<<"HDFFile::Open chosen index "<<chosen_idx;
+      if (find_status<0) {
+        BOOST_LOG_TRIVIAL(error)<<"Could not iterate over groups in file.";
+      }
+    }
+    std::stringstream trajname;
+    trajname<<"/trajectory";
+    if (chosen_idx>0) {
+      trajname << chosen_idx;
+    }
+    BOOST_LOG_TRIVIAL(info)<<"Writing to file directory "<<trajname.str();
+    trajectory_group_=H5Gcreate(file_id_, trajname.str().c_str(), H5P_DEFAULT,
       H5P_DEFAULT, H5P_DEFAULT);
     return true;
   }
 
 
-  bool WriteExecutableData(const std::string& version, const std::string& cfg,
-    const std::string& compile_time, const std::vector<int64_t>& siri) const {
+  bool WriteExecutableData(const std::map<std::string,std::string>& compile,
+    const boost::program_options::basic_parsed_options<char>& options,
+    const std::vector<int64_t>& siri) const {
     std::unique_lock<std::mutex> only_me(single_writer_);
-    //boost::program_options::basic_parsed_options<wchar_t> options;
 
-    hsize_t adims=1;
-    hid_t dspace_id=H5Screate_simple(1, &adims, NULL);
+    {
+      hsize_t adims=1;
+      hid_t dspace_id=H5Screate_simple(1, &adims, NULL);
 
-    std::map<std::string,std::string> key_value;
-    key_value["VERSION"]=version;
-    key_value["CONFIG"]=cfg;
-    key_value["COMPILETIME"]=compile_time;
+      for (const auto& kv : compile) {
+        hid_t strtype=H5Tcopy(H5T_C_S1);
+        herr_t strstatus=H5Tset_size(strtype, kv.second.size());
+        if (strstatus<0) {
+          BOOST_LOG_TRIVIAL(error)
+            <<"Could not create string for executable data.";
+            return false;
+        }
 
-    for (const auto& kv : key_value) {
-      hid_t strtype=H5Tcopy(H5T_C_S1);
-      herr_t strstatus=H5Tset_size(strtype, kv.second.size());
-      if (strstatus<0) {
+        hid_t attr0_id=H5Acreate2(trajectory_group_, kv.first.c_str() , strtype,
+          dspace_id, H5P_DEFAULT, H5P_DEFAULT);
+        herr_t atstatus=H5Awrite(attr0_id, strtype, kv.second.c_str());
+        if (atstatus<0) {
+          BOOST_LOG_TRIVIAL(error)<<"Could not write attribute "<<kv.first;
+          return false;
+        }
+        H5Tclose(strtype);
+        H5Aclose(attr0_id);
+      }
+      H5Sclose(dspace_id);
+    }
+
+    {
+      hsize_t sdims=3;
+      hid_t sirspace_id=H5Screate_simple(1, &sdims, NULL);
+
+      hid_t attr1_id=H5Acreate2(trajectory_group_, "Initial Values",
+        H5T_STD_I64LE, sirspace_id, H5P_DEFAULT, H5P_DEFAULT);
+      herr_t at1status=H5Awrite(attr1_id, H5T_NATIVE_LONG, &siri[0]);
+      if (at1status<0) {
+        BOOST_LOG_TRIVIAL(error)<<"Could not write attribute Initial Values";
+        return false;
+      }
+      H5Sclose(sirspace_id);
+      H5Aclose(attr1_id);
+    }
+
+    // We save the command-line options used to call the program.
+    std::stringstream optstring;
+    optstring << "<options>";
+    for (auto& opt : options.options) {
+      optstring << "<option><name>" << opt.string_key << "</name>";
+      optstring << "<values>";
+      for (auto& v : opt.value) {
+        optstring << "<value>" << v << "</value>";
+      }
+      optstring <<"</values></options>";
+    }
+    optstring << "</options>";
+    
+    {
+      hsize_t odims=1;
+      hid_t ospace_id=H5Screate_simple(1, &odims, NULL);
+
+      hid_t ostrtype=H5Tcopy(H5T_C_S1);
+      herr_t ostrstatus=H5Tset_size(ostrtype, optstring.str().size());
+      if (ostrstatus<0) {
         BOOST_LOG_TRIVIAL(error)
           <<"Could not create string for executable data.";
           return false;
       }
 
-      hid_t attr0_id=H5Acreate2(trajectory_group_, kv.first.c_str() , strtype,
-        dspace_id, H5P_DEFAULT, H5P_DEFAULT);
-      herr_t atstatus=H5Awrite(attr0_id, strtype, kv.second.c_str());
-      if (atstatus<0) {
-        BOOST_LOG_TRIVIAL(error)<<"Could not write attribute "<<kv.first;
+      hid_t oattr_id=H5Acreate2(trajectory_group_, "Options", ostrtype,
+        ospace_id, H5P_DEFAULT, H5P_DEFAULT);
+      herr_t ostatus=H5Awrite(oattr_id, ostrtype, optstring.str().c_str());
+      if (ostatus<0) {
+        BOOST_LOG_TRIVIAL(error)<<"Could not write attribute Options";
         return false;
       }
-      H5Tclose(strtype);
-      H5Aclose(attr0_id);
+      H5Sclose(ospace_id);
+      H5Tclose(ostrtype);
+      H5Aclose(oattr_id);
     }
 
-    std::vector<std::string> sirn{"Initial S", "Initial I", "Initial R"};
-    for (int comp_idx=0; comp_idx<siri.size(); ++comp_idx) {
-      hid_t attr1_id=H5Acreate2(trajectory_group_, sirn[comp_idx].c_str() ,
-        H5T_STD_I64LE, dspace_id, H5P_DEFAULT, H5P_DEFAULT);
-      herr_t at1status=H5Awrite(attr1_id, H5T_NATIVE_LONG, &siri[comp_idx]);
-      if (at1status<0) {
-        BOOST_LOG_TRIVIAL(error)<<"Could not write attribute "<<sirn[comp_idx];
-        return false;
-      }
-      H5Aclose(attr1_id);
-    }
-
-    /* We save the command-line options used to call the program.
-    for (auto& opt : options) {
-      std::cout << opt.string_key;
-      std::cout << "\t";
-      for (auto& v : opt.value) {
-        std::cout << v <<" ";
-      }
-      std::cout <<std::endl;
-    }
-    */
-
-    H5Sclose(dspace_id);
     return true;
   }
 
@@ -155,8 +235,8 @@ class HDFFile::impl {
     }
 
     std::stringstream dset_name;
-    dset_name << "/trajectory/dset" << seed << "-" << idx;
-    hid_t dataset_id=H5Dcreate2(file_id_, dset_name.str().c_str(),
+    dset_name << "dset" << seed << "-" << idx;
+    hid_t dataset_id=H5Dcreate2(trajectory_group_, dset_name.str().c_str(),
       write_trajectory_type, dataspace_id, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
     if (dataset_id<0) {
       BOOST_LOG_TRIVIAL(error)<<"Could not make HD5 dataset "<<dataset_id;
@@ -205,16 +285,17 @@ class HDFFile::impl {
 
 HDFFile::HDFFile(const std::string& fname) : pimpl{ new impl{ fname }} {}
 HDFFile::~HDFFile() {}
-bool HDFFile::Open() { return pimpl->Open(); }
+bool HDFFile::Open(bool truncate) { return pimpl->Open(truncate); }
 bool HDFFile::Close() { return pimpl->Close(); }
 bool HDFFile::SaveTrajectory(const std::vector<Parameter>& params,
   int seed, int idx, const TrajectoryType& traj) const {
   return pimpl->SaveTrajectory(params, seed, idx, traj);
 }
-bool HDFFile::WriteExecutableData(const std::string& version,
-    const std::string& cfg,
-    const std::string& compile_time, const std::vector<int64_t>& siri) const {
-  return pimpl->WriteExecutableData(version, cfg, compile_time, siri);
+bool HDFFile::WriteExecutableData(
+    const std::map<std::string,std::string>& compile,
+    boost::program_options::basic_parsed_options<char>& cmdline,
+    const std::vector<int64_t>& initial_values) const {
+  return pimpl->WriteExecutableData(compile, cmdline, initial_values);
 }
 HDFFile::HDFFile(const HDFFile& o)
 : pimpl(o.pimpl) {}
